@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lee — Personal AI Assistant</title>
+    <meta name="description" content="Lee is your intelligent personal AI assistant running locally on your Mac.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+    <!-- ── Sidebar ─────────────────────────────────────────────────────── -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="brand">
+                <div class="brand-icon">✦</div>
+                <h1>Lee</h1>
+            </div>
+            <button class="btn-new-chat" id="btn-new-chat" title="New Chat">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                    stroke-linecap="round">
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+            </button>
+        </div>
+
+        <div class="sidebar-search">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input type="text" id="search-input" placeholder="Search conversations…" autocomplete="off">
+        </div>
+
+        <div class="sidebar-conversations" id="conversation-list">
+            <!-- Conversations loaded dynamically -->
+        </div>
+
+        <div class="sidebar-footer">
+            <div class="sidebar-footer-info">
+                <span class="status-dot"></span>
+                <span>Running locally</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ── Toggle sidebar on mobile ────────────────────────────────────── -->
+    <button class="sidebar-toggle" id="sidebar-toggle">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round">
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+        </svg>
+    </button>
+
+    <!-- ── Main Chat Area ──────────────────────────────────────────────── -->
+    <main class="chat-main" id="chat-main">
+        <!-- Welcome Screen -->
+        <div class="welcome-screen" id="welcome-screen">
+            <div class="welcome-icon">✦</div>
+            <h2>Hello, I'm <span class="gradient-text">Lee</span></h2>
+            <p>Your personal AI assistant running locally on your Mac.<br>I can chat, manage files, search the web, take
+                screenshots, and more.</p>
+            <div class="quick-actions">
+                <button class="quick-action" data-message="What's my system info?">
+                    <span class="qa-icon">💻</span>
+                    <span>System Info</span>
+                </button>
+                <button class="quick-action" data-message="What's the current date and time?">
+                    <span class="qa-icon">🕐</span>
+                    <span>Date & Time</span>
+                </button>
+                <button class="quick-action" data-message="Search the web for today's top tech news">
+                    <span class="qa-icon">🔍</span>
+                    <span>Web Search</span>
+                </button>
+                <button class="quick-action" data-message="List my Desktop files">
+                    <span class="qa-icon">📁</span>
+                    <span>My Files</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Messages Container -->
+        <div class="messages-container" id="messages-container">
+            <div class="messages" id="messages">
+                <!-- Messages rendered dynamically -->
+            </div>
+        </div>
+
+        <!-- Input Area -->
+        <div class="input-area">
+            <div class="input-wrapper" id="input-wrapper">
+                <textarea id="message-input" placeholder="Message Lee…" rows="1" autocomplete="off"
+                    autofocus></textarea>
+                <button class="btn-send" id="btn-send" title="Send" disabled>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="22" y1="2" x2="11" y2="13" />
+                        <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                    </svg>
+                </button>
+            </div>
+            <div class="input-footer">
+                <span>Lee uses Groq LLaMA 3.3 · Running locally</span>
+            </div>
+        </div>
+    </main>
+
+    <script src="/static/app.js"></script>
+</body>
+
+</html>
