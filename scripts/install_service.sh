@@ -88,7 +88,7 @@ do_install() {
     <key>WorkingDirectory</key>
     <string>${PROJECT_DIR}</string>
 
-    <key>EnvironmentVLeebles</key>
+    <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
         <string>${PROJECT_DIR}/agentEnv/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
