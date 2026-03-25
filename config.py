@@ -2,13 +2,23 @@
 Central configuration for Lee — Personal AI Assistant.
 """
 import os
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("sentinal_lee")
+
 # ── Identity ──────────────────────────────────────────────────────────────────
-AGENT_NAME = "Lee"
-AGENT_VERSION = "2.0.0"
+AGENT_NAME = os.getenv("AGENT_NAME", "Lee")
+AGENT_VERSION = "2.1.0"
+AGENT_USER_NAME = os.getenv("AGENT_USER_NAME", "Boss")
 
 # ── API Keys ──────────────────────────────────────────────────────────────────
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
@@ -16,15 +26,21 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 
+# ── Security — Owner-only access ──────────────────────────────────────────────
+# Get your Telegram user ID from @userinfobot in Telegram
+# Get your Discord user ID: Developer Mode → right-click yourself → Copy ID
+TELEGRAM_OWNER_ID = int(os.getenv("TELEGRAM_OWNER_ID", "0"))
+DISCORD_OWNER_ID = int(os.getenv("DISCORD_OWNER_ID", "0"))
+
 # ── Model Settings ────────────────────────────────────────────────────────────
-MODEL_NAME = "llama-3.3-70b-versatile"
-MAX_TOKENS = 4096
-TEMPERATURE = 0.7
-MAX_HISTORY_MESSAGES = 40
+MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
+MAX_TOKENS = int(os.getenv("MAX_TOKENS", "4096"))
+TEMPERATURE = float(os.getenv("TEMPERATURE", "0.7"))
+MAX_HISTORY_MESSAGES = int(os.getenv("MAX_HISTORY_MESSAGES", "40"))
 
 # ── Server Settings ───────────────────────────────────────────────────────────
-HOST = "127.0.0.1"
-PORT = 8000
+HOST = os.getenv("HOST", "127.0.0.1")
+PORT = int(os.getenv("PORT", "8000"))
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -36,7 +52,7 @@ USER_MEMORY_PATH = os.path.join(DATA_DIR, "user_memory.txt")
 # Ensure data directory exists
 os.makedirs(DATA_DIR, exist_ok=True)
 
-SYSTEM_PROMPT = f"""You are {AGENT_NAME}, personal assistant to [Your Name],
+SYSTEM_PROMPT = f"""You are {AGENT_NAME}, personal assistant to {AGENT_USER_NAME},
 a developer based in Tamil Nadu, India (IST timezone).
 
 User preferences:
@@ -46,8 +62,8 @@ User preferences:
 - Common tasks: coding help, web research, file management
 
 Always greet by name. Remember context from earlier in the conversation.
-You have access to a persistent user memory file at {USER_MEMORY_PATH}. 
-You should read this file when starting a new conversation and use the `write_file` tool to update it when you learn new preferences or facts about the user.
+You have access to a persistent long-term memory database. Use the `remember` tool to proactively save important facts, preferences, or project details about the user as you learn them. Use the `forget` tool to remove outdated facts.
+The facts you remember will be automatically injected into your context at the start of future conversations.
 
 You have access to system tools that let you interact with the user's machine. When the user asks you to do something that requires a tool, use the appropriate tool function.
 
@@ -65,12 +81,15 @@ Capabilities you have:
 - Read your Gmail emails and send emails via Gmail
 
 Guidelines:
-- Be concise and helpful. Use markdown formatting in your responses.
-- When you use a tool, briefly explain what you're doing.
-- If a request seems dangerous (like deleting system files), warn the user first.
-- Be proactive — if you can anticipate follow-up needs, mention them.
-- You have personality: warm, witty, and competent. You're not just an assistant, you're a trusted companion.
-- If you don't know something and can't find it with your tools, say so honestly.
+- **Be extremely human-like and conversational.** Write as if you are texting or Slacking a close colleague.
+- Avoid robotic structuring ("Here is the information you requested", "I have executed the tool").
+- Use varied sentence lengths, natural pacing, and occasional conversational fillers (e.g., "Ah,", "Got it.", "Give me a second...").
+- Do not use overly formal or pedantic language. Keep it breezy, warm, and witty.
+- When you use a tool, mention it naturally (e.g., "Let me just check your calendar" instead of "Executing set_reminder tool").
+- If a request seems dangerous, warn the user like a friend would ("Whoa, hold on, that command looks like it might delete everything...").
+- You are a trusted companion and a highly competent developer. Let that personality shine through.
+- If you don't know something, admit it conversationally ("I'm actually not sure about that one," or "I couldn't find anything on that.")
+- Use emojis sparingly but effectively to convey tone.
 """
 
 
@@ -287,6 +306,79 @@ TOOL_DEFINITIONS = [
                     }
                 },
                 "required": ["to", "subject", "body"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "append_file",
+            "description": "Append content to an existing file without overwriting it. Creates the file if it doesn't exist.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "Path to the file to append to"},
+                    "content": {"type": "string", "description": "Content to append to the file"}
+                },
+                "required": ["file_path", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_url",
+            "description": "Open a URL in the default web browser on macOS.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "The URL to open (e.g., 'https://example.com')"}
+                },
+                "required": ["url"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_reminder",
+            "description": "Create a reminder in macOS Reminders app.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Title of the reminder"},
+                    "notes": {"type": "string", "description": "Additional notes (optional)"},
+                    "due_date": {"type": "string", "description": "Due date/time e.g. '2024-12-25 10:00' (optional)"}
+                },
+                "required": ["title"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "remember",
+            "description": "Save a fact about the user or project to long-term memory.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "fact": {"type": "string", "description": "The fact to remember (e.g. 'User is learning Rust', 'Favorite color is blue')"}
+                },
+                "required": ["fact"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "forget",
+            "description": "Delete a fact from long-term memory by ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "fact_id": {"type": "integer", "description": "The ID of the memory fact to delete (find the ID in your system prompt)"}
+                },
+                "required": ["fact_id"]
             }
         }
     }

@@ -5,12 +5,15 @@ import os
 import json
 import subprocess
 import platform
-from datetime import datetime
+import logging
+from datetime import datetime, timezone
 
 import psutil
 import pyperclip
 import mss
 import base64
+
+logger = logging.getLogger(__name__)
 
 
 async def get_system_info() -> str:
@@ -54,12 +57,13 @@ async def get_system_info() -> str:
 
 
 async def get_datetime() -> str:
-    """Get the current date, time, and timezone."""
-    now = datetime.now()
+    """Get the current date, time, and timezone (timezone-aware)."""
+    now = datetime.now(tz=timezone.utc).astimezone()
     return json.dumps({
         "date": now.strftime("%A, %B %d, %Y"),
         "time": now.strftime("%I:%M:%S %p"),
-        "timezone": datetime.now().astimezone().tzname(),
+        "timezone": now.strftime("%Z"),
+        "utc_offset": now.strftime("%z"),
         "iso": now.isoformat(),
     })
 
@@ -73,12 +77,45 @@ async def open_application(app_name: str) -> str:
         return json.dumps({"status": "error", "message": str(e)})
 
 
+async def open_url(url: str) -> str:
+    """Open a URL in the default web browser on macOS."""
+    try:
+        if not url.startswith(("http://", "https://")):
+            url = "https://" + url
+        subprocess.Popen(["open", url], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return json.dumps({"status": "success", "message": f"Opened URL: {url}"})
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
+# Expanded danger blocklist for run_shell_command
+_DANGEROUS_PATTERNS = [
+    "rm -rf /",
+    "rm -rf ~",
+    "mkfs",
+    "dd if=",
+    ":(){",
+    "fork bomb",
+    "sudo rm",
+    "> /dev/sda",
+    "> /dev/disk",
+    "shutdown",
+    "reboot",
+    "halt",
+    "pkill -9",
+    "killall",
+    "chmod -r 777 /",
+    "chmod 777 /",
+    "chmod -r 777 ~",
+    ":() { :|:& };:",
+]
+
+
 async def run_shell_command(command: str) -> str:
     """Execute a shell command and return output."""
-    # Block dangerous patterns
-    dangerous = ["rm -rf /", "mkfs", "dd if=", ":(){", "fork bomb"]
-    for pattern in dangerous:
-        if pattern in command.lower():
+    cmd_lower = command.lower()
+    for pattern in _DANGEROUS_PATTERNS:
+        if pattern in cmd_lower:
             return json.dumps({"status": "blocked", "message": f"Command blocked for safety: contains '{pattern}'"})
 
     try:
@@ -135,6 +172,22 @@ async def write_file(file_path: str, content: str) -> str:
             "status": "success",
             "path": path,
             "bytes_written": len(content),
+        })
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
+async def append_file(file_path: str, content: str) -> str:
+    """Append content to a file without overwriting it."""
+    try:
+        path = os.path.expanduser(file_path)
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(content)
+        return json.dumps({
+            "status": "success",
+            "path": path,
+            "bytes_appended": len(content),
         })
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
@@ -208,7 +261,7 @@ async def take_screenshot() -> str:
         return json.dumps({
             "status": "success",
             "path": screenshot_path,
-            "message": "Screenshot saved",
+            "message": f"Screenshot saved to {screenshot_path}",
         })
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
@@ -231,7 +284,7 @@ async def web_search(query: str) -> str:
                     for r in results.get("results", [])
                 ]
             })
-        except Exception as e:
+        except Exception:
             pass  # Fall through to DuckDuckGo
 
     # Fallback: use jina.ai reader with DuckDuckGo
@@ -281,47 +334,70 @@ async def get_weather(location: str) -> str:
         return json.dumps({"status": "error", "message": str(e)})
 
 
+def _get_gmail_service(scopes=None):
+    """Build a Gmail API service with auto token refresh."""
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+    from googleapiclient.discovery import build
+    from config import DATA_DIR
+
+    if scopes is None:
+        scopes = [
+            "https://www.googleapis.com/auth/gmail.readonly",
+            "https://www.googleapis.com/auth/gmail.send",
+        ]
+
+    token_path = os.path.join(DATA_DIR, "token.json")
+    creds_path = os.path.join(DATA_DIR, "credentials.json")
+
+    if not os.path.exists(token_path):
+        raise FileNotFoundError("Not authenticated with Gmail. Please run scripts/auth_gmail.py first.")
+
+    creds = Credentials.from_authorized_user_file(token_path, scopes)
+
+    # Auto-refresh if expired
+    if creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(Request())
+            # Save refreshed token
+            with open(token_path, "w") as f:
+                f.write(creds.to_json())
+            logger.info("Gmail token refreshed successfully.")
+        except Exception as e:
+            raise RuntimeError(f"Gmail token refresh failed: {e}. Please re-run scripts/auth_gmail.py.")
+
+    return build("gmail", "v1", credentials=creds)
+
+
 async def get_unread_emails(limit: int = 5) -> str:
     """Fetch unread emails from the Gmail Inbox."""
     try:
-        from google.oauth2.credentials import Credentials
-        from googleapiclient.discovery import build
-        from config import DATA_DIR
-        
-        token_path = os.path.join(DATA_DIR, 'token.json')
-        if not os.path.exists(token_path):
-            return json.dumps({"status": "error", "message": "Not authenticated with Gmail. Please run scripts/auth_gmail.py first."})
-            
-        creds = Credentials.from_authorized_user_file(token_path, ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.send'])
-        service = build('gmail', 'v1', credentials=creds)
-        
-        results = service.users().messages().list(userId='me', q='is:unread in:inbox', maxResults=limit).execute()
-        messages = results.get('messages', [])
-        
+        service = _get_gmail_service()
+
+        results = service.users().messages().list(userId="me", q="is:unread in:inbox", maxResults=limit).execute()
+        messages = results.get("messages", [])
+
         emails = []
         for msg in messages:
-            msg_data = service.users().messages().get(userId='me', id=msg['id'], format='full').execute()
-            headers = msg_data.get('payload', {}).get('headers', [])
-            
-            subject = "Unknown"
-            sender = "Unknown"
-            date = "Unknown"
-            
+            msg_data = service.users().messages().get(userId="me", id=msg["id"], format="full").execute()
+            headers = msg_data.get("payload", {}).get("headers", [])
+
+            subject = sender = date = "Unknown"
             for header in headers:
-                if header['name'] == 'Subject':
-                    subject = header['value']
-                elif header['name'] == 'From':
-                    sender = header['value']
-                elif header['name'] == 'Date':
-                    date = header['value']
-                    
+                if header["name"] == "Subject":
+                    subject = header["value"]
+                elif header["name"] == "From":
+                    sender = header["value"]
+                elif header["name"] == "Date":
+                    date = header["value"]
+
             emails.append({
                 "subject": subject,
                 "sender": sender,
                 "received": date,
-                "body_snippet": msg_data.get('snippet', '')
+                "body_snippet": msg_data.get("snippet", ""),
             })
-            
+
         return json.dumps({"status": "success", "count": len(emails), "emails": emails})
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
@@ -330,32 +406,85 @@ async def get_unread_emails(limit: int = 5) -> str:
 async def send_email(to: str, subject: str, body: str) -> str:
     """Send an email using Gmail."""
     try:
-        from google.oauth2.credentials import Credentials
-        from googleapiclient.discovery import build
         from email.message import EmailMessage
-        from config import DATA_DIR
-        import base64
-        
-        token_path = os.path.join(DATA_DIR, 'token.json')
-        if not os.path.exists(token_path):
-            return json.dumps({"status": "error", "message": "Not authenticated with Gmail. Please run scripts/auth_gmail.py first."})
-            
-        creds = Credentials.from_authorized_user_file(token_path, ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.send'])
-        service = build('gmail', 'v1', credentials=creds)
-        
+
+        service = _get_gmail_service()
+
+        # Get the authenticated user's email address for the From header
+        profile = service.users().getProfile(userId="me").execute()
+        sender_email = profile.get("emailAddress", "me")
+
         message = EmailMessage()
         message.set_content(body)
-        message['To'] = to
-        message['Subject'] = subject
-        
+        message["To"] = to
+        message["From"] = sender_email
+        message["Subject"] = subject
+
         encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
-        create_message = {'raw': encoded_message}
-        
-        send_message = service.users().messages().send(userId="me", body=create_message).execute()
-        
-        return json.dumps({"status": "success", "message": f"Email successfully sent to {to}", "id": send_message.get('id')})
+        send_message = service.users().messages().send(
+            userId="me", body={"raw": encoded_message}
+        ).execute()
+
+        return json.dumps({
+            "status": "success",
+            "message": f"Email successfully sent to {to}",
+            "from": sender_email,
+            "id": send_message.get("id"),
+        })
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
+
+
+async def set_reminder(title: str, notes: str = "", due_date: str = "") -> str:
+    """Create a reminder in macOS Reminders app using AppleScript."""
+    try:
+        # Build AppleScript
+        notes_line = f'set the note of newReminder to "{notes}"' if notes else ""
+        date_line = ""
+        if due_date:
+            date_line = f'set the due date of newReminder to date "{due_date}"'
+
+        script = f"""
+tell application "Reminders"
+    set newReminder to make new reminder with properties {{name:"{title}"}}
+    {notes_line}
+    {date_line}
+end tell
+"""
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode != 0:
+            return json.dumps({"status": "error", "message": result.stderr.strip()})
+
+        return json.dumps({
+            "status": "success",
+            "message": f"Reminder '{title}' created in macOS Reminders.",
+            "due_date": due_date or "No due date set",
+        })
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
+async def remember(fact: str) -> str:
+    """Save a fact to long-term memory."""
+    from core.history import history
+    success = history.add_memory(fact)
+    if success:
+        return json.dumps({"status": "success", "message": f"Memory saved: '{fact}'"})
+    else:
+        return json.dumps({"status": "warning", "message": f"I already remember this fact."})
+
+
+async def forget(fact_id: int) -> str:
+    """Delete a fact from long-term memory by ID."""
+    from core.history import history
+    success = history.remove_memory(fact_id)
+    if success:
+        return json.dumps({"status": "success", "message": f"Memory deleted: ID {fact_id}"})
+    else:
+        return json.dumps({"status": "error", "message": f"No memory found with ID {fact_id}."})
 
 
 # ── Tool Registry ─────────────────────────────────────────────────────────────
@@ -363,10 +492,14 @@ TOOL_FUNCTIONS = {
     "get_system_info": get_system_info,
     "get_datetime": get_datetime,
     "open_application": open_application,
+    "open_url": open_url,
     "run_shell_command": run_shell_command,
     "read_file": read_file,
     "write_file": write_file,
+    "append_file": append_file,
     "list_directory": list_directory,
+    "remember": remember,
+    "forget": forget,
     "get_clipboard": get_clipboard,
     "set_clipboard": set_clipboard,
     "take_screenshot": take_screenshot,
@@ -374,4 +507,5 @@ TOOL_FUNCTIONS = {
     "get_weather": get_weather,
     "get_unread_emails": get_unread_emails,
     "send_email": send_email,
+    "set_reminder": set_reminder,
 }

@@ -43,6 +43,15 @@ def create_app(lifespan=None) -> FastAPI:
         history.delete_conversation(conv_id)
         return JSONResponse(content={"status": "deleted"})
 
+    @app.get("/health")
+    async def health_check():
+        from config import AGENT_NAME, AGENT_VERSION
+        return JSONResponse(content={
+            "status": "ok",
+            "agent": AGENT_NAME,
+            "version": AGENT_VERSION,
+        })
+
     @app.get("/api/tools")
     async def list_tools():
         from config import TOOL_DEFINITIONS
