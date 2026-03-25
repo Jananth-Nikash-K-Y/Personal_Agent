@@ -14,6 +14,7 @@ from pyfiglet import Figlet
 from config import AGENT_NAME, AGENT_VERSION, HOST, PORT
 from channels.web import create_app
 from channels.discord_bot import start_discord_bot
+from channels.telegram_bot import start_telegram_bot
 
 
 def print_banner():
@@ -31,6 +32,7 @@ def print_banner():
 async def lifespan(application):
     """Lifespan handler — start background services."""
     asyncio.create_task(start_discord_bot())
+    asyncio.create_task(start_telegram_bot())
     yield
 
 

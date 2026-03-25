@@ -130,13 +130,48 @@ class ChatHistory:
 
     def get_recent_messages_for_context(self, conv_id: str, limit: int = 40) -> list:
         """Get recent messages formatted for the LLM context window."""
-        messages = self.get_messages(conv_id, limit)
+        messages = self.get_messages(conv_id, limit=limit + 10)
         formatted = []
         for msg in messages:
-            entry = {"role": msg["role"], "content": msg["content"]}
-            if msg.get("tool_call_id"):
-                entry["tool_call_id"] = msg["tool_call_id"]
-            formatted.append(entry)
+            if msg["role"] == "assistant" and msg.get("tool_name") == "multiple_tool_calls":
+                try:
+                    data = json.loads(msg["content"])
+                    entry = {
+                        "role": "assistant",
+                        "content": data.get("content", ""),
+                        "tool_calls": data.get("tool_calls", [])
+                    }
+                    formatted.append(entry)
+                except json.JSONDecodeError:
+                    pass
+            elif msg["role"] == "assistant" and msg.get("tool_name"):
+                # Old format helper
+                formatted.append({"role": "assistant", "content": msg["content"]})
+            elif msg["role"] == "tool":
+                if formatted and formatted[-1]["role"] == "assistant" and "tool_calls" in formatted[-1]:
+                    formatted.append({
+                        "role": "tool",
+                        "content": msg["content"],
+                        "tool_call_id": msg["tool_call_id"]
+                    })
+                else:
+                    # Convert to system to preserve context without breaking schema
+                    formatted.append({
+                        "role": "system",
+                        "content": f"[Result from past tool {msg.get('tool_name', 'unknown')}]: {msg['content']}"
+                    })
+            else:
+                formatted.append({"role": msg["role"], "content": msg["content"]})
+
+        while formatted and formatted[0]["role"] == "tool":
+            formatted.pop(0)
+
+        if len(formatted) > limit:
+            slice_idx = len(formatted) - limit
+            while slice_idx > 0 and formatted[slice_idx]["role"] == "tool":
+                slice_idx -= 1
+            formatted = formatted[slice_idx:]
+
         return formatted
 
     def search_messages(self, query: str, limit: int = 20) -> list:

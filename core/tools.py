@@ -234,22 +234,19 @@ async def web_search(query: str) -> str:
         except Exception as e:
             pass  # Fall through to DuckDuckGo
 
-    # Fallback: use DuckDuckGo lite via curl
+    # Fallback: use jina.ai reader with DuckDuckGo
     try:
         import urllib.parse
         encoded = urllib.parse.quote_plus(query)
         result = subprocess.run(
-            ["curl", "-s", f"https://lite.duckduckgo.com/lite/?q={encoded}"],
-            capture_output=True, text=True, timeout=10
+            ["curl", "-s", f"https://r.jina.ai/https://lite.duckduckgo.com/lite/?q={encoded}"],
+            capture_output=True, text=True, timeout=15
         )
-        # Extract some text from the response
-        import re
-        text = re.sub(r"<[^>]+>", " ", result.stdout)
-        text = re.sub(r"\s+", " ", text).strip()[:3000]
+        text = result.stdout.strip()[:3000]
         return json.dumps({
             "status": "success",
             "query": query,
-            "source": "duckduckgo",
+            "source": "jina-duckduckgo",
             "raw_text": text,
         })
     except Exception as e:
@@ -284,6 +281,83 @@ async def get_weather(location: str) -> str:
         return json.dumps({"status": "error", "message": str(e)})
 
 
+async def get_unread_emails(limit: int = 5) -> str:
+    """Fetch unread emails from the Gmail Inbox."""
+    try:
+        from google.oauth2.credentials import Credentials
+        from googleapiclient.discovery import build
+        from config import DATA_DIR
+        
+        token_path = os.path.join(DATA_DIR, 'token.json')
+        if not os.path.exists(token_path):
+            return json.dumps({"status": "error", "message": "Not authenticated with Gmail. Please run scripts/auth_gmail.py first."})
+            
+        creds = Credentials.from_authorized_user_file(token_path, ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.send'])
+        service = build('gmail', 'v1', credentials=creds)
+        
+        results = service.users().messages().list(userId='me', q='is:unread in:inbox', maxResults=limit).execute()
+        messages = results.get('messages', [])
+        
+        emails = []
+        for msg in messages:
+            msg_data = service.users().messages().get(userId='me', id=msg['id'], format='full').execute()
+            headers = msg_data.get('payload', {}).get('headers', [])
+            
+            subject = "Unknown"
+            sender = "Unknown"
+            date = "Unknown"
+            
+            for header in headers:
+                if header['name'] == 'Subject':
+                    subject = header['value']
+                elif header['name'] == 'From':
+                    sender = header['value']
+                elif header['name'] == 'Date':
+                    date = header['value']
+                    
+            emails.append({
+                "subject": subject,
+                "sender": sender,
+                "received": date,
+                "body_snippet": msg_data.get('snippet', '')
+            })
+            
+        return json.dumps({"status": "success", "count": len(emails), "emails": emails})
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
+async def send_email(to: str, subject: str, body: str) -> str:
+    """Send an email using Gmail."""
+    try:
+        from google.oauth2.credentials import Credentials
+        from googleapiclient.discovery import build
+        from email.message import EmailMessage
+        from config import DATA_DIR
+        import base64
+        
+        token_path = os.path.join(DATA_DIR, 'token.json')
+        if not os.path.exists(token_path):
+            return json.dumps({"status": "error", "message": "Not authenticated with Gmail. Please run scripts/auth_gmail.py first."})
+            
+        creds = Credentials.from_authorized_user_file(token_path, ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.send'])
+        service = build('gmail', 'v1', credentials=creds)
+        
+        message = EmailMessage()
+        message.set_content(body)
+        message['To'] = to
+        message['Subject'] = subject
+        
+        encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+        create_message = {'raw': encoded_message}
+        
+        send_message = service.users().messages().send(userId="me", body=create_message).execute()
+        
+        return json.dumps({"status": "success", "message": f"Email successfully sent to {to}", "id": send_message.get('id')})
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
 # ── Tool Registry ─────────────────────────────────────────────────────────────
 TOOL_FUNCTIONS = {
     "get_system_info": get_system_info,
@@ -298,4 +372,6 @@ TOOL_FUNCTIONS = {
     "take_screenshot": take_screenshot,
     "web_search": web_search,
     "get_weather": get_weather,
+    "get_unread_emails": get_unread_emails,
+    "send_email": send_email,
 }

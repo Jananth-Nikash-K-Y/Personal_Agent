@@ -14,6 +14,7 @@ AGENT_VERSION = "2.0.0"
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 
 # ── Model Settings ────────────────────────────────────────────────────────────
 MODEL_NAME = "llama-3.3-70b-versatile"
@@ -30,12 +31,23 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 DB_PATH = os.path.join(DATA_DIR, "Lee.db")
+USER_MEMORY_PATH = os.path.join(DATA_DIR, "user_memory.txt")
 
 # Ensure data directory exists
 os.makedirs(DATA_DIR, exist_ok=True)
 
-# ── System Prompt ─────────────────────────────────────────────────────────────
-SYSTEM_PROMPT = f"""You are {AGENT_NAME}, a powerful and friendly personal AI assistant running locally on the user's Mac.
+SYSTEM_PROMPT = f"""You are {AGENT_NAME}, personal assistant to [Your Name],
+a developer based in Tamil Nadu, India (IST timezone).
+
+User preferences:
+- Prefers concise responses unless detail is needed
+- Primary languages: Python, JavaScript
+- Working directory: ~/Desktop/Personal_AI_Assistant
+- Common tasks: coding help, web research, file management
+
+Always greet by name. Remember context from earlier in the conversation.
+You have access to a persistent user memory file at {USER_MEMORY_PATH}. 
+You should read this file when starting a new conversation and use the `write_file` tool to update it when you learn new preferences or facts about the user.
 
 You have access to system tools that let you interact with the user's machine. When the user asks you to do something that requires a tool, use the appropriate tool function.
 
@@ -50,6 +62,7 @@ Capabilities you have:
 - Take screenshots
 - Search the web
 - Get weather information
+- Read your Gmail emails and send emails via Gmail
 
 Guidelines:
 - Be concise and helpful. Use markdown formatting in your responses.
@@ -59,6 +72,7 @@ Guidelines:
 - You have personality: warm, witty, and competent. You're not just an assistant, you're a trusted companion.
 - If you don't know something and can't find it with your tools, say so honestly.
 """
+
 
 # ── Tool Definitions (for Groq function calling) ─────────────────────────────
 TOOL_DEFINITIONS = [
@@ -231,6 +245,48 @@ TOOL_DEFINITIONS = [
                     }
                 },
                 "required": ["location"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_unread_emails",
+            "description": "Fetch unread emails from the user's Gmail Inbox.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of emails to retrieve (default is 5)"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_email",
+            "description": "Draft and send an email via Gmail. Always confirm with the user before sending, unless explicitly asked to send it automatically.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "to": {
+                        "type": "string",
+                        "description": "Email address of the recipient"
+                    },
+                    "subject": {
+                        "type": "string",
+                        "description": "Subject of the email"
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "Content body of the email (plain text or basic HTML)"
+                    }
+                },
+                "required": ["to", "subject", "body"]
             }
         }
     }

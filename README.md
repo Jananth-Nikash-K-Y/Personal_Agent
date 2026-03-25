@@ -63,6 +63,7 @@
 - **Groq API Key** — [Get one free](https://console.groq.com/keys)
 - **Discord Bot Token** *(optional)* — [Create a bot](https://discord.com/developers/applications)
 - **Tavily API Key** *(optional)* — [Sign up](https://tavily.com/) for web search
+- **Gmail API Credentials** *(optional)* — Save `credentials.json` to the `data/` folder for email access
 
 ---
 
@@ -99,7 +100,14 @@ DISCORD_TOKEN=your_discord_bot_token_here
 TAVILY_API_KEY=your_tavily_api_key_here
 ```
 
-### 3. Run Lee
+### 3. Setup Gmail (Optional)
+
+If you want Lee to read and send emails:
+1. Save your `credentials.json` from Google Cloud Console into the `data/` directory.
+2. Run `python scripts/auth_gmail.py` and grant permissions in your browser.
+3. This will generate `data/token.json` for future access.
+
+### 4. Run Lee
 
 #### Option A: Manual (Foreground)
 
@@ -435,6 +443,8 @@ Lee has 12 built-in tools that let her interact with your Mac:
 | `take_screenshot` | Capture the screen | *"Take a screenshot"* |
 | `web_search` | Search the internet | *"Search for latest Python news"* |
 | `get_weather` | Weather information | *"Weather in Tokyo?"* |
+| `get_unread_emails` | Read unread Gmails | *"Do I have any new emails?"* |
+| `send_email` | Send a Gmail | *"Email john@example.com saying hello"* |
 
 ---
 
@@ -460,6 +470,7 @@ Lee has 12 built-in tools that let her interact with your Mac:
 | Capture screen | *"Take a screenshot"* |
 | Search the internet | *"Search for latest Python news"* |
 | Check weather anywhere | *"Weather in Tokyo?"* |
+| Check or send Gmails | *"Read my unread emails or send an email"* |
 
 ### ⚙️ Manage the Service
 - Run in foreground (`python main.py`), background (`bash scripts/Lee.sh start`), or as a 24/7 `launchd` service

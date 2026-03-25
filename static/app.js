@@ -9,6 +9,8 @@ const $$ = (sel) => document.querySelectorAll(sel);
 let ws = null;
 let currentConversationId = null;
 let isWaiting = false;
+let currentStreamingMessageEl = null;
+let currentStreamingContent = "";
 
 // ── DOM References ───────────────────────────────────────────────────────
 const sidebar = $("#sidebar");
@@ -68,6 +70,13 @@ function sendMessage(text) {
     }));
 }
 
+function stopStreaming() {
+    currentStreamingMessageEl = null;
+    currentStreamingContent = "";
+    isWaiting = false;
+    updateSendButton();
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // EVENT HANDLING
 // ═══════════════════════════════════════════════════════════════════════════
@@ -88,15 +97,27 @@ function handleServerEvent(data) {
             showTypingIndicator();
             break;
 
+        case "content_chunk":
+            removeTypingIndicator();
+            appendMessageChunk("assistant", data.content);
+            break;
+
         case "message":
             removeTypingIndicator();
-            appendMessage("assistant", data.content);
-            isWaiting = false;
-            updateSendButton();
+            if (currentStreamingMessageEl) {
+                stopStreaming();
+            } else {
+                appendMessage("assistant", data.content);
+                isWaiting = false;
+                updateSendButton();
+            }
             break;
 
         case "error":
             removeTypingIndicator();
+            if (currentStreamingMessageEl) {
+                stopStreaming();
+            }
             appendMessage("assistant", `⚠️ ${data.content}`);
             isWaiting = false;
             updateSendButton();
@@ -123,6 +144,18 @@ function appendMessage(role, content) {
     `;
 
     messagesDiv.appendChild(msgEl);
+    scrollToBottom();
+    return msgEl;
+}
+
+function appendMessageChunk(role, chunk) {
+    if (!currentStreamingMessageEl) {
+        currentStreamingMessageEl = appendMessage(role, "");
+        currentStreamingContent = "";
+    }
+    currentStreamingContent += chunk;
+    const contentEl = currentStreamingMessageEl.querySelector(".message-content");
+    contentEl.innerHTML = renderMarkdown(currentStreamingContent);
     scrollToBottom();
 }
 

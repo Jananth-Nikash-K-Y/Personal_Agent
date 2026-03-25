@@ -82,76 +82,13 @@ async def chat(
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + context_messages
 
     try:
-        # Call Groq with tools
-        response = groq_client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=messages,
-            tools=TOOL_DEFINITIONS,
-            tool_choice="auto",
-            max_tokens=MAX_TOKENS,
-            temperature=TEMPERATURE,
-        )
-
-        assistant_message = response.choices[0].message
-
-        # Handle tool calls (may be multiple rounds)
         max_tool_rounds = 5
         round_count = 0
 
-        while assistant_message.tool_calls and round_count < max_tool_rounds:
+        while round_count <= max_tool_rounds:
             round_count += 1
-
-            # Add assistant's tool-calling message to context
-            messages.append({
-                "role": "assistant",
-                "content": assistant_message.content or "",
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments,
-                        }
-                    }
-                    for tc in assistant_message.tool_calls
-                ]
-            })
-
-            # Execute each tool call
-            for tool_call in assistant_message.tool_calls:
-                tool_name = tool_call.function.name
-                try:
-                    tool_args = json.loads(tool_call.function.arguments)
-                except json.JSONDecodeError:
-                    tool_args = {}
-
-                yield {"type": "tool_call", "tool_name": tool_name, "tool_args": tool_args}
-
-                # Execute the tool
-                tool_result = await execute_tool(tool_name, tool_args)
-
-                yield {"type": "tool_result", "tool_name": tool_name, "content": tool_result}
-
-                # Add tool result to context
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": tool_result,
-                })
-
-                # Save tool interaction to history
-                history.add_message(
-                    conversation_id, str(uuid.uuid4()), "assistant",
-                    f"[Tool Call: {tool_name}({json.dumps(tool_args)})]",
-                    tool_name=tool_name
-                )
-                history.add_message(
-                    conversation_id, str(uuid.uuid4()), "tool",
-                    tool_result, tool_call_id=tool_call.id, tool_name=tool_name
-                )
-
-            # Call the LLM again with tool results
+            
+            # Call Groq with streaming enabled
             response = groq_client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=messages,
@@ -159,16 +96,93 @@ async def chat(
                 tool_choice="auto",
                 max_tokens=MAX_TOKENS,
                 temperature=TEMPERATURE,
+                stream=True
             )
 
-            assistant_message = response.choices[0].message
+            full_content = ""
+            current_tool_calls_dict = {}
+            is_tool_call = False
 
-        # Final text response
-        reply = assistant_message.content or "I completed the action."
-        reply_id = str(uuid.uuid4())
-        history.add_message(conversation_id, reply_id, "assistant", reply)
+            for chunk in response:
+                delta = chunk.choices[0].delta
+                if delta.content:
+                    full_content += delta.content
+                    yield {"type": "content_chunk", "content": delta.content}
+                if delta.tool_calls:
+                    is_tool_call = True
+                    for tc in delta.tool_calls:
+                        idx = tc.index
+                        if idx not in current_tool_calls_dict:
+                            current_tool_calls_dict[idx] = {
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.function.name or "",
+                                    "arguments": tc.function.arguments or ""
+                                }
+                            }
+                        else:
+                            if tc.function.arguments:
+                                current_tool_calls_dict[idx]["function"]["arguments"] += tc.function.arguments
 
-        yield {"type": "message", "content": reply, "message_id": reply_id, "conversation_id": conversation_id}
+            if not is_tool_call:
+                # Final text response
+                reply = full_content or "I completed the action."
+                reply_id = str(uuid.uuid4())
+                history.add_message(conversation_id, reply_id, "assistant", reply)
+                yield {"type": "message", "content": reply, "message_id": reply_id, "conversation_id": conversation_id}
+                break
+
+            # --- Handle tool calls ---
+            tool_calls_data = [current_tool_calls_dict[idx] for idx in sorted(current_tool_calls_dict.keys())]
+            
+            # Add assistant's tool-calling message to context
+            messages.append({
+                "role": "assistant",
+                "content": full_content,
+                "tool_calls": tool_calls_data
+            })
+
+            # Save assistant's tool-calling message to history ONCE
+            history.add_message(
+                conversation_id, str(uuid.uuid4()), "assistant",
+                json.dumps({"content": full_content, "tool_calls": tool_calls_data}),
+                tool_name="multiple_tool_calls"
+            )
+
+            # Execute each tool call
+            for tool_call in tool_calls_data:
+                tool_name = tool_call["function"]["name"]
+                try:
+                    args_str = tool_call["function"]["arguments"]
+                    tool_args = json.loads(args_str) if args_str else {}
+                    if not isinstance(tool_args, dict):
+                        tool_args = {}
+                except Exception:
+                    tool_args = {}
+
+                yield {"type": "tool_call", "tool_name": tool_name, "tool_args": tool_args}
+
+                # Execute the tool
+                try:
+                    tool_result = await execute_tool(tool_name, tool_args)
+                except Exception as e:
+                    tool_result = json.dumps({"status": "error", "message": str(e)})
+
+                yield {"type": "tool_result", "tool_name": tool_name, "content": tool_result}
+
+                # Add tool result to context
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call["id"],
+                    "content": tool_result,
+                })
+
+                # Save the individual tool result to history
+                history.add_message(
+                    conversation_id, str(uuid.uuid4()), "tool",
+                    tool_result, tool_call_id=tool_call["id"], tool_name=tool_name
+                )
 
     except Exception as e:
         error_msg = f"Sorry, I ran into an error: {str(e)}"
