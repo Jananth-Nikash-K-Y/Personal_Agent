@@ -146,16 +146,16 @@ graph TD
     classDef tools fill:#ef4444,stroke:#fff,stroke-width:2px,color:#fff;
 
     %% Nodes
-    U1((📱 Telegram)):::user
-    U2((👾 Discord)):::userD
+    U1(("📱 Telegram")):::user
+    U2(("👾 Discord")):::userD
     
-    A[🧠 Sentinal Lee Core\n(Nvidia NIM Llama-3.3)]:::agent
+    A["🧠 Sentinal Lee Core<br>(Nvidia NIM Llama-3.3)"]:::agent
     
-    M[(💾 SQLite Database\nLong-Term Memory)]:::memory
+    M[("💾 SQLite Database<br>Long-Term Memory")]:::memory
     
-    T1[💻 Mac System Tools]:::tools
-    T2[✉️ Gmail API]:::tools
-    T3[🌐 Tavily Search]:::tools
+    T1["💻 Mac System Tools"]:::tools
+    T2["✉️ Gmail API"]:::tools
+    T3["🌐 Tavily Search"]:::tools
 
     %% Relationships
     U1 <-->|Async Messaging| A
