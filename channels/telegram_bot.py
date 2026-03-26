@@ -6,7 +6,7 @@ import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from core.engine import chat_simple
-from config import TELEGRAM_TOKEN, TELEGRAM_OWNER_ID, AGENT_NAME, USER_MEMORY_PATH
+from config import TELEGRAM_TOKEN, TELEGRAM_OWNER_ID, AGENT_NAME
 
 logger = logging.getLogger(__name__)
 

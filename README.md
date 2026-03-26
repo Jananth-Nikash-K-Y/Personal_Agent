@@ -86,7 +86,7 @@ If you want Sentinel Lee to be able to read and send emails on your behalf, you 
    ```
 4. Fill in your real Google Cloud OAuth Client ID, Secret, and Tokens inside those new files. **These files are strictly ignored by `.gitignore` to prevent secret leaks, so you will never accidentally commit your real keys to GitHub!**
 
-### 3. Start the Engine!
+### 4. Start the Engine!
 You can start Lee simply by running:
 ```bash
 python main.py

@@ -4,7 +4,7 @@ Discord bot channel for Lee — owner-only, per-user conversation isolation.
 import logging
 import discord
 from core.engine import chat_simple
-from config import DISCORD_TOKEN, DISCORD_OWNER_ID, AGENT_NAME, USER_MEMORY_PATH
+from config import DISCORD_TOKEN, DISCORD_OWNER_ID, AGENT_NAME
 
 logger = logging.getLogger(__name__)
 

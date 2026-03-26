@@ -118,12 +118,13 @@ async def chat(
     user_msg_id = str(uuid.uuid4())
     history.add_message(conversation_id, user_msg_id, "user", user_message)
 
-    # Build system prompt — inject user memory for new conversations
-    effective_system_prompt = SYSTEM_PROMPT
-    if is_new_conversation:
-        memory_snippet = await _load_user_memory()
-        if memory_snippet:
-            effective_system_prompt = SYSTEM_PROMPT + memory_snippet
+    # Build system prompt — always inject user memory so resumed conversations
+    # also have access to the latest known facts about the user
+    memory_snippet = await _load_user_memory()
+    if memory_snippet:
+        effective_system_prompt = SYSTEM_PROMPT + memory_snippet
+    else:
+        effective_system_prompt = SYSTEM_PROMPT
 
     # Build messages for the LLM
     context_messages = history.get_recent_messages_for_context(conversation_id)
@@ -134,6 +135,14 @@ async def chat(
         round_count = 0
 
         while round_count <= max_tool_rounds:
+            # Check limit BEFORE calling the LLM to prevent an extra round executing
+            if round_count >= max_tool_rounds:
+                limit_msg = f"⚠️ I hit my tool-use limit ({max_tool_rounds} rounds) and couldn't complete the task fully. Please try rephrasing or breaking it into smaller steps."
+                limit_id = str(uuid.uuid4())
+                history.add_message(conversation_id, limit_id, "assistant", limit_msg)
+                yield {"type": "message", "content": limit_msg, "message_id": limit_id, "conversation_id": conversation_id}
+                break
+
             round_count += 1
 
             # Call OpenAI without streaming for reliable tool parsing on 3rd-party endpoints
@@ -175,7 +184,8 @@ async def chat(
                         message.tool_calls = [DummyCall(DummyFunction(parsed["name"], json.dumps(parsed.get("parameters", {}))))]
                         is_tool_call = True
                         full_content = full_content.replace(json_match.group(0), "").strip()
-                    except: pass
+                    except Exception:
+                        logger.debug("Fallback JSON tool-call parse failed, skipping.", exc_info=True)
                 
                 # Check for pseudo-code Python format: web_search.query("abc") or web_search("abc")
                 if not is_tool_call:
@@ -222,14 +232,6 @@ async def chat(
                 reply_id = str(uuid.uuid4())
                 history.add_message(conversation_id, reply_id, "assistant", reply)
                 yield {"type": "message", "content": reply, "message_id": reply_id, "conversation_id": conversation_id}
-                break
-
-            # Check if we've hit the tool round limit on this iteration
-            if round_count > max_tool_rounds:
-                limit_msg = f"⚠️ I hit my tool-use limit ({max_tool_rounds} rounds) and couldn't complete the task fully. Please try rephrasing or breaking it into smaller steps."
-                limit_id = str(uuid.uuid4())
-                history.add_message(conversation_id, limit_id, "assistant", limit_msg)
-                yield {"type": "message", "content": limit_msg, "message_id": limit_id, "conversation_id": conversation_id}
                 break
 
             # --- Handle tool calls ---

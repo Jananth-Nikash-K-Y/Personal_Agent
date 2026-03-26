@@ -80,8 +80,18 @@ async def open_application(app_name: str) -> str:
 async def open_url(url: str) -> str:
     """Open a URL in the default web browser on macOS."""
     try:
-        if not url.startswith(("http://", "https://")):
-            url = "https://" + url
+        import urllib.parse
+        parsed = urllib.parse.urlparse(url)
+        # Only allow http and https — block file://, app://, custom schemes etc.
+        if parsed.scheme not in ("http", "https"):
+            if parsed.scheme == "":
+                url = "https://" + url
+                parsed = urllib.parse.urlparse(url)
+            else:
+                return json.dumps({"status": "error", "message": f"Blocked: URL scheme '{parsed.scheme}' is not allowed. Only http/https URLs are permitted."})
+        # Ensure URL has a valid netloc (hostname)
+        if not parsed.netloc:
+            return json.dumps({"status": "error", "message": "Invalid URL: no hostname found."})
         subprocess.Popen(["open", url], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         return json.dumps({"status": "success", "message": f"Opened URL: {url}"})
     except Exception as e:
@@ -92,6 +102,7 @@ async def open_url(url: str) -> str:
 _DANGEROUS_PATTERNS = [
     "rm -rf /",
     "rm -rf ~",
+    "rm -rf .",
     "mkfs",
     "dd if=",
     ":(){",
@@ -110,13 +121,32 @@ _DANGEROUS_PATTERNS = [
     ":() { :|:& };:",
 ]
 
+# Regex patterns that catch obfuscated bypass attempts
+import re as _re
+_DANGEROUS_REGEX = [
+    _re.compile(r"r[\\\s]*m\s+-[\w]*r[\w]*\s+-[\w]*f", _re.I),  # r m -rf variants with spaces
+    _re.compile(r"sudo\s+", _re.I),                              # any sudo usage
+    _re.compile(r":\s*\(\s*\)", _re.I),                         # fork bomb variants
+    _re.compile(r"\$IFS"),                                       # $IFS shell bypass
+    _re.compile(r"base64\s+-d"),                                 # base64 decode execution
+    _re.compile(r"curl.+\|.+sh"),                                # curl | sh pipe download-exec
+    _re.compile(r"wget.+\|.+sh"),                                # wget | sh pipe download-exec
+    _re.compile(r"eval\s*\("),                                   # eval execution
+    _re.compile(r"exec\s*\("),                                   # exec execution
+]
+
 
 async def run_shell_command(command: str) -> str:
     """Execute a shell command and return output."""
     cmd_lower = command.lower()
+    # Plain string pattern check
     for pattern in _DANGEROUS_PATTERNS:
         if pattern in cmd_lower:
             return json.dumps({"status": "blocked", "message": f"Command blocked for safety: contains '{pattern}'"})
+    # Regex-based obfuscation bypass detection
+    for pattern in _DANGEROUS_REGEX:
+        if pattern.search(command):
+            return json.dumps({"status": "blocked", "message": f"Command blocked for safety: matches dangerous pattern '{pattern.pattern}'"})
 
     try:
         result = subprocess.run(
@@ -359,10 +389,14 @@ def _get_gmail_service(scopes=None):
     if creds.expired and creds.refresh_token:
         try:
             creds.refresh(Request())
-            # Save refreshed token
-            with open(token_path, "w") as f:
-                f.write(creds.to_json())
-            logger.info("Gmail token refreshed successfully.")
+            # Atomic write: write to temp file then replace original to avoid corruption on crash
+            import tempfile
+            token_dir = os.path.dirname(token_path)
+            with tempfile.NamedTemporaryFile("w", dir=token_dir, delete=False, suffix=".tmp") as tmp:
+                tmp.write(creds.to_json())
+                tmp_path = tmp.name
+            os.replace(tmp_path, token_path)
+            logger.info("Gmail token refreshed and saved atomically.")
         except Exception as e:
             raise RuntimeError(f"Gmail token refresh failed: {e}. Please re-run scripts/auth_gmail.py.")
 
@@ -435,18 +469,29 @@ async def send_email(to: str, subject: str, body: str) -> str:
         return json.dumps({"status": "error", "message": str(e)})
 
 
+def _applescript_escape(s: str) -> str:
+    """Escape a string for safe embedding inside an AppleScript double-quoted string."""
+    # Escape backslashes first, then double quotes to prevent injection
+    return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
 async def set_reminder(title: str, notes: str = "", due_date: str = "") -> str:
     """Create a reminder in macOS Reminders app using AppleScript."""
     try:
+        # Sanitize all user inputs to prevent AppleScript injection
+        safe_title = _applescript_escape(title)
+        safe_notes = _applescript_escape(notes)
+        safe_due_date = _applescript_escape(due_date)
+
         # Build AppleScript
-        notes_line = f'set the note of newReminder to "{notes}"' if notes else ""
+        notes_line = f'set the note of newReminder to "{safe_notes}"' if notes else ""
         date_line = ""
         if due_date:
-            date_line = f'set the due date of newReminder to date "{due_date}"'
+            date_line = f'set the due date of newReminder to date "{safe_due_date}"'
 
         script = f"""
 tell application "Reminders"
-    set newReminder to make new reminder with properties {{name:"{title}"}}
+    set newReminder to make new reminder with properties {{name:"{safe_title}"}}
     {notes_line}
     {date_line}
 end tell
