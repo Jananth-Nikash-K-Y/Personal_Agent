@@ -419,12 +419,47 @@ async def get_market_data(symbol: str) -> str:
     """
     sym_lower = symbol.lower().strip()
 
-    # ── 1. PRECIOUS METALS — Use Tavily for Indian retail price ──────────────
+    # ── 1. PRECIOUS METALS / COMMODITIES ─────────────────────────────────────
     if sym_lower in PRECIOUS_METALS:
+        # If we have an Indian API Key, use the official commodities endpoint
+        if INDIAN_API_KEY:
+            try:
+                base_url = "https://indianapi.in"
+                result = subprocess.run(
+                    ["curl", "-s", "-H", f"x-api-key: {INDIAN_API_KEY}", 
+                     f"{base_url}/commodities?name={sym_lower.upper()}"],
+                    capture_output=True, text=True, timeout=10
+                )
+                data = json.loads(result.stdout) if result.stdout else {}
+                if data and "error" not in str(data).lower():
+                    # Handle both list and object responses
+                    item = data if not isinstance(data, list) else data[0]
+                    return json.dumps({
+                        "status": "success",
+                        "asset": sym_lower.upper(),
+                        "currency": "INR",
+                        "price": item.get("tradePrice") or item.get("lastPrice") or item.get("price"),
+                        "change": item.get("change"),
+                        "percent_change": item.get("pChange") or item.get("percentChange"),
+                        "day_high": item.get("dayHigh"),
+                        "day_low": item.get("dayLow"),
+                        "expiry": item.get("expirationDate"),
+                        "data_source": "IndianAPI.in (Official Commodities)"
+                    })
+            except Exception:
+                pass # Fallback to Tavily if API call fails
+                
+        # Fallback to Tavily for Indian retail price if IndianAPI fails or has no key
         query = METAL_QUERIES.get(sym_lower, f"{sym_lower} price today per gram India")
         try:
             from tavily import TavilyClient
-            tc = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
+            tkey = os.getenv("TAVILY_API_KEY")
+            if not tkey:
+                return json.dumps({
+                    "status": "error", 
+                    "message": "To get metal prices without a Pro key, I need a 'TAVILY_API_KEY' for web grounding. Please add it to your .env or provide an 'INDIAN_API_KEY'."
+                })
+            tc = TavilyClient(api_key=tkey)
             result = tc.search(query=query, search_depth="advanced", max_results=3, include_answer=True)
             answer = result.get("answer", "")
             sources = [r.get("url", "") for r in result.get("results", [])]
@@ -446,8 +481,34 @@ async def get_market_data(symbol: str) -> str:
         not "." in sym_lower and len(sym_lower) <= 15
     )
     if is_indian:
-        # Use the clean ticker without suffix for the Indian API
         clean = symbol.upper().replace(".NS", "").replace(".BO", "").strip()
+        
+        # ── 1. Try IndianAPI.in first if we have a key (Official & Accurate) ───
+        if INDIAN_API_KEY:
+            try:
+                result = subprocess.run(
+                    ["curl", "-s", "--max-time", "6", "-H", f"x-api-key: {INDIAN_API_KEY}", 
+                     f"https://indianapi.in/stock?name={clean}"],
+                    capture_output=True, text=True, timeout=8
+                )
+                raw = json.loads(result.stdout) if result.stdout else {}
+                if raw and "error" not in str(raw).lower():
+                    return json.dumps({
+                        "status": "success",
+                        "exchange": "NSE/BSE (Official)",
+                        "symbol": clean,
+                        "currency": "INR",
+                        "last_price": raw.get("currentPrice", {}).get("NSE") or raw.get("currentPrice", {}).get("BSE") or raw.get("price"),
+                        "change": raw.get("percentChange"),
+                        "year_high": raw.get("yearHigh"),
+                        "year_low": raw.get("yearLow"),
+                        "industry": raw.get("industry"),
+                        "data_source": "IndianAPI.in (Pro)"
+                    })
+            except Exception:
+                pass # Fallback to proxy
+
+        # ── 2. Fallback: Indian Stock Market REST API (Proxy) ─────────────────
         try:
             result = subprocess.run(
                 ["curl", "-s", "--max-time", "8",
@@ -470,11 +531,10 @@ async def get_market_data(symbol: str) -> str:
                     "52_week_high": price_info.get("yearHigh"),
                     "52_week_low": price_info.get("yearLow"),
                     "volume": price_info.get("totalTradedVolume") or price_info.get("volume"),
-                    "market_cap": price_info.get("totalBuyQuantity"),
-                    "data_source": "NSE India (live, real-time)"
+                    "data_source": "NSE India (Proxy)"
                 })
         except Exception:
-            pass  # Fall through to yfinance
+            pass
 
         # Fallback: try yfinance with .NS suffix for Indian stocks
         try:
@@ -556,44 +616,47 @@ async def get_indian_analysis(symbol: str) -> str:
     if not INDIAN_API_KEY:
         return json.dumps({
             "status": "error", 
-            "message": "IndianAPI.in key is missing. Please add INDIAN_API_KEY to your .env file to unlock deep analysis."
+            "message": "IndianAPI.in key is missing. Add INDIAN_API_KEY to your .env to unlock deep analysis."
         })
 
     clean = symbol.upper().replace(".NS", "").replace(".BO", "").strip()
-    base_url = "https://indianapi.in"
-    
-    # We'll try to get both Price/Metrics and Analyst views
-    # IndianAPI.in often has specific endpoints. We'll use the 'Stock Data' endpoint.
     try:
-        # Analyst Views & Suggestions
-        result_analyst = subprocess.run(
-            ["curl", "-s", "-H", f"x-api-key: {INDIAN_API_KEY}", 
-             f"{base_url}/stock-analyst-views?name={clean}"],
+        # One call to /stock gets everything (AnalystView, Metrics, Financials, etc.)
+        result = subprocess.run(
+            ["curl", "-s", "--max-time", "8", "-H", f"x-api-key: {INDIAN_API_KEY}", 
+             f"https://indianapi.in/stock?name={clean}"],
             capture_output=True, text=True, timeout=10
         )
-        analyst_data = json.loads(result_analyst.stdout) if result_analyst.stdout else {}
+        raw = json.loads(result.stdout) if result.stdout else {}
+        if not raw or "error" in str(raw).lower():
+            return json.dumps({"status": "error", "message": f"Could not find analysis for {clean} on IndianAPI.in"})
 
-        # Key Metrics & Financials
-        result_metrics = subprocess.run(
-            ["curl", "-s", "-H", f"x-api-key: {INDIAN_API_KEY}", 
-             f"{base_url}/stock-financials?name={clean}"],
-            capture_output=True, text=True, timeout=10
-        )
-        metrics_data = json.loads(result_metrics.stdout) if result_metrics.stdout else {}
-
-        if not analyst_data and not metrics_data:
-             return json.dumps({"status": "error", "message": f"No analysis found for {clean} on IndianAPI.in"})
+        # Trim the response for performance and token saving
+        trimmed = {
+            "symbol": clean,
+            "companyName": raw.get("companyName"),
+            "industry": raw.get("industry"),
+            "current_price": raw.get("currentPrice"),
+            "keyMetrics": raw.get("keyMetrics"),
+            "analystView": raw.get("analystView"),
+            "recosBar": raw.get("recosBar"),
+            "shareholding_summary": {
+                "promoter": raw.get("shareholding", {}).get("promoter"),
+                "fii": raw.get("shareholding", {}).get("fii"),
+                "dii": raw.get("shareholding", {}).get("dii"),
+                "public": raw.get("shareholding", {}).get("public"),
+            },
+            "recentNews": [n.get("title") for n in raw.get("recentNews", [])[:3]] # Top 3 headlines only
+        }
 
         return json.dumps({
             "status": "success",
-            "symbol": clean,
-            "analyst_views": analyst_data,
-            "financial_metrics": metrics_data,
-            "note": "Analysis provided by IndianAPI.in (official broker insights)."
+            "data": trimmed,
+            "note": "Analysis provided by IndianAPI.in (Official Institutional Source)."
         })
 
     except Exception as e:
-        return json.dumps({"status": "error", "message": f"Deep analysis failed: {str(e)}"})
+        return json.dumps({"status": "error", "message": f"Deep analysis execution failed: {str(e)}"})
 
 
 async def get_weather(location: str) -> str:

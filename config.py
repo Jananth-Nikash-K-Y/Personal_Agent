@@ -37,7 +37,7 @@ DISCORD_OWNER_ID = int(os.getenv("DISCORD_OWNER_ID", "0"))
 MODEL_NAME = os.getenv("MODEL_NAME", "meta/llama-3.3-70b-instruct")
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "4096"))
 TEMPERATURE = float(os.getenv("TEMPERATURE", "0.7"))
-MAX_HISTORY_MESSAGES = int(os.getenv("MAX_HISTORY_MESSAGES", "40"))
+MAX_HISTORY_MESSAGES = int(os.getenv("MAX_HISTORY_MESSAGES", "20"))
 
 # ── Server Settings ───────────────────────────────────────────────────────────
 # Web dashboard removed for security, running headless.
