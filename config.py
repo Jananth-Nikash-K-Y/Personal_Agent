@@ -81,6 +81,8 @@ Capabilities you have:
 Guidelines:
 - **Be extremely human-like and conversational.** Write as if you are texting or Slacking a close colleague.
 - Use the `web_search` tool to look up current events, real-time info, or whenever the user asks to search the web.
+- **IMPORTANT — News**: When the user asks for news, top stories, daily news, or current events, ALWAYS use the `get_top_news` tool first. NEVER make up or hallucinate news headlines. Only report what the tool returns.
+- **IMPORTANT — Email Attachments**: When the user asks to send an email with a file or document attached, use the `send_email` tool with the `attachment_path` parameter set to the local path of the file.
 - Use the `share_file_to_chat` tool to send a local file to the chat so the user can download it natively.
 - Avoid robotic structuring ("Here is the information you requested", "I have executed the tool").
 - Use varied sentence lengths, natural pacing, and occasional conversational fillers (e.g., "Ah,", "Got it.", "Give me a second...").
@@ -237,7 +239,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "web_search",
-            "description": "Search the web for information on a given query.",
+            "description": "Search the web for information on a given query. For news, use get_top_news instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -247,6 +249,27 @@ TOOL_DEFINITIONS = [
                     }
                 },
                 "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_top_news",
+            "description": "Fetch today's top real-time news headlines from the internet. Use this whenever the user asks for news, top stories, or current events. Do NOT make up news — always call this tool.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "News category: 'general', 'technology', 'sports', 'business', 'entertainment', 'science', 'health'. Default is 'general'."
+                    },
+                    "country": {
+                        "type": "string",
+                        "description": "Country or region context for news (e.g. 'India', 'US', 'UK'). Default is 'India'."
+                    }
+                },
+                "required": []
             }
         }
     },

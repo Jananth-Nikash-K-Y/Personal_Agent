@@ -305,17 +305,23 @@ async def web_search(query: str) -> str:
         try:
             from tavily import TavilyClient
             client = TavilyClient(api_key=TAVILY_API_KEY)
-            results = client.search(query, max_results=5)
+            results = client.search(
+                query,
+                max_results=5,
+                include_answer=True,       # get Tavily's synthesized answer
+                include_raw_content=False,
+            )
             return json.dumps({
                 "status": "success",
                 "query": query,
+                "answer": results.get("answer", ""),   # direct answer if available
                 "results": [
-                    {"title": r.get("title", ""), "url": r.get("url", ""), "snippet": r.get("content", "")[:300]}
+                    {"title": r.get("title", ""), "url": r.get("url", ""), "snippet": r.get("content", "")[:500]}
                     for r in results.get("results", [])
                 ]
             })
-        except Exception:
-            pass  # Fall through to DuckDuckGo
+        except Exception as e:
+            logger.warning(f"Tavily search failed: {e}, falling back to DuckDuckGo")
 
     # Fallback: use jina.ai reader with DuckDuckGo
     try:
@@ -334,6 +340,49 @@ async def web_search(query: str) -> str:
         })
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
+
+
+async def get_top_news(category: str = "general", country: str = "India") -> str:
+    """Fetch today's top news headlines using a live web search."""
+    from config import TAVILY_API_KEY
+    from datetime import datetime, timezone
+
+    today = datetime.now(tz=timezone.utc).strftime("%B %d, %Y")
+    query = f"top {category} news today {today} {country}"
+
+    if TAVILY_API_KEY:
+        try:
+            from tavily import TavilyClient
+            client = TavilyClient(api_key=TAVILY_API_KEY)
+            results = client.search(
+                query,
+                max_results=7,
+                topic="news",              # Tavily news-specific topic — fresh articles only
+                include_answer=True,
+            )
+            headlines = [
+                {
+                    "title": r.get("title", ""),
+                    "url": r.get("url", ""),
+                    "source": r.get("url", "").split("/")[2] if r.get("url") else "",
+                    "snippet": r.get("content", "")[:300],
+                }
+                for r in results.get("results", [])
+            ]
+            return json.dumps({
+                "status": "success",
+                "date": today,
+                "category": category,
+                "country": country,
+                "summary": results.get("answer", ""),
+                "headlines": headlines,
+            })
+        except Exception as e:
+            logger.warning(f"Tavily news search failed: {e}")
+
+    # Fallback
+    return await web_search(f"top {category} news {today}")
+
 
 
 async def get_weather(location: str) -> str:
@@ -567,6 +616,7 @@ TOOL_FUNCTIONS = {
     "set_clipboard": set_clipboard,
     "take_screenshot": take_screenshot,
     "web_search": web_search,
+    "get_top_news": get_top_news,
     "get_weather": get_weather,
     "get_unread_emails": get_unread_emails,
     "send_email": send_email,
