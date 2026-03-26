@@ -21,7 +21,7 @@ AGENT_VERSION = "2.1.0"
 AGENT_USER_NAME = os.getenv("AGENT_USER_NAME", "Boss")
 
 # ── API Keys ──────────────────────────────────────────────────────────────────
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
@@ -33,19 +33,17 @@ TELEGRAM_OWNER_ID = int(os.getenv("TELEGRAM_OWNER_ID", "0"))
 DISCORD_OWNER_ID = int(os.getenv("DISCORD_OWNER_ID", "0"))
 
 # ── Model Settings ────────────────────────────────────────────────────────────
-MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
+MODEL_NAME = os.getenv("MODEL_NAME", "meta/llama-3.3-70b-instruct")
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "4096"))
 TEMPERATURE = float(os.getenv("TEMPERATURE", "0.7"))
 MAX_HISTORY_MESSAGES = int(os.getenv("MAX_HISTORY_MESSAGES", "40"))
 
 # ── Server Settings ───────────────────────────────────────────────────────────
-HOST = os.getenv("HOST", "127.0.0.1")
-PORT = int(os.getenv("PORT", "8000"))
+# Web dashboard removed for security, running headless.
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
-STATIC_DIR = os.path.join(BASE_DIR, "static")
 DB_PATH = os.path.join(DATA_DIR, "Lee.db")
 USER_MEMORY_PATH = os.path.join(DATA_DIR, "user_memory.txt")
 
@@ -82,6 +80,8 @@ Capabilities you have:
 
 Guidelines:
 - **Be extremely human-like and conversational.** Write as if you are texting or Slacking a close colleague.
+- Use the `web_search` tool to look up current events, real-time info, or whenever the user asks to search the web.
+- Use the `share_file_to_chat` tool to send a local file to the chat so the user can download it natively.
 - Avoid robotic structuring ("Here is the information you requested", "I have executed the tool").
 - Use varied sentence lengths, natural pacing, and occasional conversational fillers (e.g., "Ah,", "Got it.", "Give me a second...").
 - Do not use overly formal or pedantic language. Keep it breezy, warm, and witty.
@@ -379,6 +379,20 @@ TOOL_DEFINITIONS = [
                     "fact_id": {"type": "integer", "description": "The ID of the memory fact to delete (find the ID in your system prompt)"}
                 },
                 "required": ["fact_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "share_file_to_chat",
+            "description": "Share a local file (document, image, etc.) natively in the chat to the user so they can download it directly.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "Absolute or relative path to the file to be shared"}
+                },
+                "required": ["file_path"]
             }
         }
     }

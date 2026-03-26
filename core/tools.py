@@ -487,6 +487,24 @@ async def forget(fact_id: int) -> str:
         return json.dumps({"status": "error", "message": f"No memory found with ID {fact_id}."})
 
 
+async def share_file_to_chat(file_path: str) -> str:
+    """Share a local file directly into the user's chat."""
+    try:
+        path = os.path.expanduser(file_path)
+        if not os.path.exists(path):
+            return json.dumps({"status": "error", "message": f"File not found: {path}"})
+        if not os.path.isfile(path):
+            return json.dumps({"status": "error", "message": f"Path is a directory, not a file: {path}"})
+        
+        return json.dumps({
+            "status": "file_sharing_queued", 
+            "path": path, 
+            "message": f"File {path} has been successfully queued to be sent to the user in the chat."
+        })
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
 # ── Tool Registry ─────────────────────────────────────────────────────────────
 TOOL_FUNCTIONS = {
     "get_system_info": get_system_info,
@@ -508,4 +526,5 @@ TOOL_FUNCTIONS = {
     "get_unread_emails": get_unread_emails,
     "send_email": send_email,
     "set_reminder": set_reminder,
+    "share_file_to_chat": share_file_to_chat,
 }

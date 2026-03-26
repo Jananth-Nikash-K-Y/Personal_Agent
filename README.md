@@ -5,7 +5,6 @@
 **A powerful, locally-hosted AI assistant that runs 24/7 on your Mac, built for ultimate privacy and deep system integration.**
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Discord](https://img.shields.io/badge/Discord_Bot-5865F2?logo=discord&logoColor=white)](https://discord.com)
 [![Telegram](https://img.shields.io/badge/Telegram_Bot-2CA5E0?logo=telegram&logoColor=white)](https://telegram.org)
 
@@ -28,9 +27,8 @@ Sentinal Lee is packed with features designed to make your life easier, all whil
 | Feature | Description |
 |---------|-------------|
 | 💬 **Telegram & Discord** | Chat with Lee directly through Telegram or Discord. **Owner-only security** ensures nobody else can use your bot. |
-| 🌐 **Web Dashboard** | A beautiful, real-time web chat interface available on your local network. |
 | 🧠 **Long-Term Memory** | Lee remembers your preferences, projects, and facts forever using a robust SQLite database. |
-| ⚡ **Lightning Fast** | Powered by Groq's Llama models, Lee responds instantly and runs tools in parallel. |
+| ⚡ **Lightning Fast** | Powered by Nvidia NIM's Llama models, Lee responds instantly and runs tools in parallel. |
 | 🔧 **System Control** | Let Lee control your Mac — he can read/write files, open apps, create Reminders, and run shell commands. |
 | ✉️ **Gmail Integration** | Lee can read your unread emails and draft/send replies for you. |
 | 🔍 **Web Search** | Live internet access via Tavily to answer up-to-date questions. |
@@ -62,7 +60,7 @@ Create a file named `.env` in the `Sentinal_Lee` folder and add your specific ke
 
 ```env
 # 1. API Keys
-GROQ_API_KEY=your_groq_api_key
+NVIDIA_API_KEY=your_nvidia_api_key
 DISCORD_TOKEN=your_discord_bot_token
 TELEGRAM_TOKEN=your_telegram_bot_token
 TAVILY_API_KEY=your_tavily_key
@@ -83,7 +81,7 @@ You can start Lee simply by running:
 python main.py
 ```
 
-He will instantly connect to Telegram, Discord, and start the Web Dashboard on `http://localhost:8000`.
+He will instantly connect to Telegram and Discord in the background.
 
 ---
 
@@ -115,17 +113,16 @@ Lee uses advanced "function calling" to operate your computer. If you ask him to
 ## 🛡️ Privacy & Security First
 Because Lee can run commands on your machine, strict security is built in:
 1. **Owner-Only Bots**: The Discord and Telegram bots will completely ignore everyone except the IDs specified in your `.env` file.
-2. **Localhost Only**: The Web Dashboard does not expose itself to the public internet.
+2. **Headless Design**: The bot operates purely via chat APIs, entirely eliminating local web server vulnerabilities.
 3. **Command Blocklist**: Destructive terminal commands (like `rm -rf /` or `shutdown`) are hard-blocked by the core engine.
 
 ---
 
 ## 🎛️ Behind the Scenes (Architecture)
 Sentinal Lee is built on a highly concurrent AI pipeline:
-- **FastAPI / Uvicorn**: Powers the internal API and WebSocket dashboards.
 - **AsyncIO gather**: Executes multiple tools in parallel (e.g. searching the web while simultaneously checking your system status).
 - **SQLite FTS5**: Super-fast full-text search powers the conversation history.
-- **Groq API**: Currently optimized for `llama-3.3-70b-versatile` to provide top-tier logic with sub-second response times.
+- **Nvidia NIM API**: Currently optimized for `meta/llama-3.3-70b-instruct` to provide top-tier logic via standard OpenAI-compatible endpoints with excellent tool-calling support.
 
 ---
 

@@ -84,7 +84,7 @@ async def on_message(message: discord.Message):
 
     async with message.channel.typing():
         try:
-            reply, new_conv_id = await chat_simple(
+            reply, new_conv_id, files_to_send = await chat_simple(
                 user_message=user_message,
                 conversation_id=conv_id,
                 channel="discord",
@@ -96,8 +96,15 @@ async def on_message(message: discord.Message):
                 chunks = [reply[i:i + 1900] for i in range(0, len(reply), 1900)]
                 for chunk in chunks:
                     await message.channel.send(chunk)
-            else:
+            elif reply:
                 await message.reply(reply)
+
+            # Send requested files
+            for file_path in files_to_send:
+                try:
+                    await message.channel.send(file=discord.File(file_path))
+                except Exception as e:
+                    await message.reply(f"❌ Failed to attach file {file_path}: {e}")
 
         except Exception as e:
             logger.error(f"Discord message handling error: {e}", exc_info=True)

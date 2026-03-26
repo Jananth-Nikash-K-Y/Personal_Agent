@@ -6,21 +6,24 @@ import uuid
 import asyncio
 import logging
 from typing import AsyncGenerator
-from groq import Groq
+from openai import OpenAI
 
-from config import GROQ_API_KEY, MODEL_NAME, MAX_TOKENS, TEMPERATURE, SYSTEM_PROMPT, TOOL_DEFINITIONS, USER_MEMORY_PATH
+from config import NVIDIA_API_KEY, MODEL_NAME, MAX_TOKENS, TEMPERATURE, SYSTEM_PROMPT, TOOL_DEFINITIONS, USER_MEMORY_PATH
 from core.tools import TOOL_FUNCTIONS
 from core.history import history
 
 logger = logging.getLogger(__name__)
 
-groq_client = Groq(api_key=GROQ_API_KEY)
+openai_client = OpenAI(
+    api_key=NVIDIA_API_KEY,
+    base_url="https://integrate.api.nvidia.com/v1"
+)
 
 
 async def generate_conversation_title(user_message: str) -> str:
     """Generate a short title for a conversation based on the first message."""
     try:
-        response = groq_client.chat.completions.create(
+        response = openai_client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": "Generate a very short conversation title (3-6 words) for the following message. Return ONLY the title, nothing else."},
@@ -133,42 +136,85 @@ async def chat(
         while round_count <= max_tool_rounds:
             round_count += 1
 
-            # Call Groq with streaming enabled
-            response = groq_client.chat.completions.create(
+            # Call OpenAI without streaming for reliable tool parsing on 3rd-party endpoints
+            response = openai_client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=messages,
                 tools=TOOL_DEFINITIONS,
                 tool_choice="auto",
                 max_tokens=MAX_TOKENS,
                 temperature=TEMPERATURE,
-                stream=True
+                stream=False
             )
 
-            full_content = ""
-            current_tool_calls_dict = {}
-            is_tool_call = False
+            message = response.choices[0].message
+            full_content = message.content or ""
+            is_tool_call = bool(message.tool_calls)
 
-            for chunk in response:
-                delta = chunk.choices[0].delta
-                if delta.content:
-                    full_content += delta.content
-                    yield {"type": "content_chunk", "content": delta.content}
-                if delta.tool_calls:
-                    is_tool_call = True
-                    for tc in delta.tool_calls:
-                        idx = tc.index
-                        if idx not in current_tool_calls_dict:
-                            current_tool_calls_dict[idx] = {
-                                "id": tc.id,
-                                "type": "function",
-                                "function": {
-                                    "name": tc.function.name or "",
-                                    "arguments": tc.function.arguments or ""
-                                }
-                            }
-                        else:
-                            if tc.function.arguments:
-                                current_tool_calls_dict[idx]["function"]["arguments"] += tc.function.arguments
+            current_tool_calls_dict = {}
+
+            # Fallback for Nvidia NIM leaking tool calls into text
+            if not is_tool_call and full_content:
+                import re
+                
+                # Check for {"name": "tool_name", "parameters": {...}} leak
+                json_match = re.search(r'\{\s*"name"\s*:\s*".+?",\s*"parameters"\s*:\s*\{.*?\}\s*\}', full_content, re.DOTALL)
+                if json_match:
+                    try:
+                        parsed = json.loads(json_match.group(0))
+                        class DummyFunction:
+                            def __init__(self, name, args):
+                                self.name = name
+                                self.arguments = args
+                        class DummyCall:
+                            def __init__(self, func):
+                                self.id = "call_" + str(uuid.uuid4())[:10]
+                                self.function = func
+                                self.type = "function"
+                        
+                        message.tool_calls = [DummyCall(DummyFunction(parsed["name"], json.dumps(parsed.get("parameters", {}))))]
+                        is_tool_call = True
+                        full_content = full_content.replace(json_match.group(0), "").strip()
+                    except: pass
+                
+                # Check for pseudo-code Python format: web_search.query("abc") or web_search("abc")
+                if not is_tool_call:
+                    py_match = re.search(r'([a-zA-Z0-9_]+)(?:\.[a-zA-Z0-9_]+)?\(\s*"([^"]+)"\s*\)', full_content)
+                    if py_match:
+                        tool_name = py_match.group(1)
+                        if tool_name in TOOL_FUNCTIONS:
+                            args_str = "{}"
+                            if tool_name == "web_search": args_str = json.dumps({"query": py_match.group(2)})
+                            elif tool_name == "run_shell_command": args_str = json.dumps({"command": py_match.group(2)})
+                            elif tool_name == "read_file": args_str = json.dumps({"file_path": py_match.group(2)})
+                            
+                            class DummyFunction:
+                                def __init__(self, name, args):
+                                    self.name = name
+                                    self.arguments = args
+                            class DummyCall:
+                                def __init__(self, func):
+                                    self.id = "call_" + str(uuid.uuid4())[:10]
+                                    self.function = func
+                                    self.type = "function"
+                            
+                            message.tool_calls = [DummyCall(DummyFunction(tool_name, args_str))]
+                            is_tool_call = True
+                            full_content = full_content.replace(py_match.group(0), "").strip()
+
+            if full_content:
+                yield {"type": "content_chunk", "content": full_content}
+
+            if is_tool_call:
+                for idx, tc in enumerate(message.tool_calls):
+                    current_tool_calls_dict[idx] = {
+                        "id": getattr(tc, "id", "call_" + str(uuid.uuid4())[:10]),
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments
+                        }
+                    }
 
             if not is_tool_call:
                 # Final text response
@@ -244,14 +290,20 @@ async def chat(
 
     except Exception as e:
         logger.error(f"Engine error: {e}", exc_info=True)
-        error_msg = f"Sorry, I ran into an error: {str(e)}"
+        # Handle specific Groq API parsing error metadata
+        failed_gen = getattr(e, "failed_generation", "")
+        if failed_gen:
+            error_msg = f"Sorry, I ran into an error generating the tool call: {str(e)}\n\nFailed text: {failed_gen}"
+        else:
+            error_msg = f"Sorry, I ran into an error: {str(e)}"
         yield {"type": "error", "content": error_msg}
 
 
-async def chat_simple(user_message: str, conversation_id: str = None, channel: str = "web") -> str:
+async def chat_simple(user_message: str, conversation_id: str = None, channel: str = "web") -> tuple:
     """Simplified chat that returns just the final text response. Used by Discord/Telegram channels."""
     final_reply = ""
     final_conv_id = conversation_id
+    files_to_send = []
 
     async for event in chat(user_message, conversation_id, channel):
         if event["type"] == "conversation_id":
@@ -260,5 +312,12 @@ async def chat_simple(user_message: str, conversation_id: str = None, channel: s
             final_reply = event["content"]
         elif event["type"] == "error":
             final_reply = event["content"]
+        elif event["type"] == "tool_result" and event.get("tool_name") == "share_file_to_chat":
+            try:
+                data = json.loads(event["content"])
+                if data.get("status") == "file_sharing_queued" and "path" in data:
+                    files_to_send.append(data["path"])
+            except Exception:
+                pass
 
-    return final_reply, final_conv_id
+    return final_reply, final_conv_id, files_to_send

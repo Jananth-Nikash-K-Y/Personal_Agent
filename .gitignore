@@ -21,6 +21,10 @@ data/*.log
 data/*.png
 data/*.db
 
+# ── Credentials & OAuth Tokens (NEVER commit these) ───────────────────────────
+data/token.json
+data/credentials.json
+
 # ── macOS ─────────────────────────────────────────────────────────────────────
 .DS_Store
 .AppleDouble
