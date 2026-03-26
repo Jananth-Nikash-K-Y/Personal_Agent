@@ -385,6 +385,75 @@ async def get_top_news(category: str = "general", country: str = "India") -> str
 
 
 
+async def get_market_data(symbol: str) -> str:
+    """Get real-time market data for stocks or metals using yfinance."""
+    try:
+        import yfinance as yf
+
+        # Map common metal/commodity names to Yahoo Finance futures tickers
+        common_metals = {
+            "gold": "GC=F",
+            "silver": "SI=F",
+            "platinum": "PL=F",
+            "copper": "HG=F",
+            "palladium": "PA=F",
+            "crude oil": "CL=F",
+            "brent oil": "BZ=F",
+            "natural gas": "NG=F",
+        }
+
+        # Normalize the symbol
+        lookup_symbol = symbol.lower().strip()
+        if lookup_symbol in common_metals:
+            lookup_symbol = common_metals[lookup_symbol]
+        else:
+            lookup_symbol = symbol.upper()
+
+        ticker = yf.Ticker(lookup_symbol)
+        
+        # Get historical data for the last 5 days
+        hist = ticker.history(period="5d")
+        if hist.empty:
+            return json.dumps({"status": "error", "message": f"No data found for symbol: {symbol} (looked up as {lookup_symbol})"})
+
+        current_price = hist["Close"].iloc[-1]
+        previous_close = hist["Close"].iloc[-2] if len(hist) > 1 else current_price
+        change = current_price - previous_close
+        percent_change = (change / previous_close) * 100 if previous_close else 0
+
+        # Build a 5-day history array
+        history_data = []
+        for date, row in hist.iterrows():
+            history_data.append({
+                "date": date.strftime("%Y-%m-%d"),
+                "close": round(row["Close"], 2),
+                "volume": int(row["Volume"]) if "Volume" in row else 0
+            })
+
+        info = ticker.info
+        
+        return json.dumps({
+            "status": "success",
+            "symbol": lookup_symbol,
+            "name": info.get("shortName") or info.get("longName") or symbol,
+            "currency": info.get("currency", "USD"),
+            "current_price": round(current_price, 2),
+            "change": round(change, 2),
+            "percent_change_today": round(percent_change, 2),
+            "day_high": round(hist["High"].iloc[-1], 2),
+            "day_low": round(hist["Low"].iloc[-1], 2),
+            "52_week_high": info.get("fiftyTwoWeekHigh", "N/A"),
+            "52_week_low": info.get("fiftyTwoWeekLow", "N/A"),
+            "market_cap": info.get("marketCap", "N/A"),
+            "5_day_history": history_data
+        })
+
+    except ImportError:
+        return json.dumps({"status": "error", "message": "yfinance library is not installed. Please run 'pip install yfinance'."})
+    except Exception as e:
+        return json.dumps({"status": "error", "message": f"Error fetching data for {symbol}: {str(e)}"})
+
+
 async def get_weather(location: str) -> str:
     """Get weather information using wttr.in."""
     try:
@@ -644,6 +713,9 @@ TOOL_FUNCTIONS = {
     "take_screenshot": take_screenshot,
     "web_search": web_search,
     "get_top_news": get_top_news,
+
+    "get_market_data": get_market_data,
+
     "get_weather": get_weather,
     "get_unread_emails": get_unread_emails,
     "send_email": send_email,
