@@ -75,6 +75,17 @@ TELEGRAM_OWNER_ID=123456789
 DISCORD_OWNER_ID=987654321
 ```
 
+### 3. Configure Google API Capabilities (Gmail Integration)
+If you want Sentinel Lee to be able to read and send emails on your behalf, you need to set up Google API credentials:
+1. Navigate to the `data/` folder.
+2. You will see two template files: `credentials.example.json` and `token.example.json`.
+3. Copy them and remove the `.example` part:
+   ```bash
+   cp data/credentials.example.json data/credentials.json
+   cp data/token.example.json data/token.json
+   ```
+4. Fill in your real Google Cloud OAuth Client ID, Secret, and Tokens inside those new files. **These files are strictly ignored by `.gitignore` to prevent secret leaks, so you will never accidentally commit your real keys to GitHub!**
+
 ### 3. Start the Engine!
 You can start Lee simply by running:
 ```bash
