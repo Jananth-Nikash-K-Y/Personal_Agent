@@ -43,7 +43,8 @@ data/credentials.json
 *.sublime-workspace
 
 # ── Service ───────────────────────────────────────────────────────────────────
-*.plist
+# committed: com.sentinallee.plist (the launch agent service file)
+Info.plist
 
 # ── Misc ──────────────────────────────────────────────────────────────────────
 *.bak

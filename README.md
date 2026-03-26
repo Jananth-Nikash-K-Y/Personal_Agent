@@ -96,6 +96,50 @@ He will instantly connect to Telegram and Discord in the background.
 
 ---
 
+## 🖥️ Running 24/7 on Your Mac (Background Service)
+
+For a proper always-on setup, use macOS's built-in **launchd** system. Lee is configured as a background service that:
+- ✅ **Auto-starts** every time you log in
+- ✅ **Auto-restarts** instantly if it ever crashes
+- ✅ Uses `ProcessType=Background` — macOS deprioritizes it so it barely touches battery or CPU
+
+### One-Time Setup
+```bash
+# 1. Copy the plist to LaunchAgents
+cp com.sentinallee.plist ~/Library/LaunchAgents/
+
+# 2. Load and start the service
+launchctl load ~/Library/LaunchAgents/com.sentinallee.plist
+
+# 3. Verify it's running (you should see the PID and 0 exit code)
+launchctl list | grep sentinallee
+```
+
+### Day-to-Day Management
+```bash
+# View live logs (press Ctrl+C to stop)
+tail -f logs/lee.log
+
+# View error logs
+tail -f logs/lee.error.log
+
+# Stop the service
+launchctl unload ~/Library/LaunchAgents/com.sentinallee.plist
+
+# Start the service again
+launchctl load ~/Library/LaunchAgents/com.sentinallee.plist
+
+# Restart after a code update
+launchctl unload ~/Library/LaunchAgents/com.sentinallee.plist && launchctl load ~/Library/LaunchAgents/com.sentinallee.plist
+```
+
+### 🔋 Battery Tips
+- Lee is **event-driven** — it uses near-zero CPU when idle (it only wakes on a Telegram/Discord message).
+- Set **System Preferences → Battery → Power Adapter → "Prevent sleeping when display is off"** to keep the Mac awake when plugged in.
+- If unplugged, macOS will automatically suspend background processes to save power.
+
+---
+
 ## 🧠 How Long-Term Memory Works
 Lee is designed to be your constant companion. If you tell him a fact about yourself (e.g., *"I'm working on a Python project"* or *"My favorite food is sushi"*), he will permanently learn it. 
 

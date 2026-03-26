@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.sentinallee</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/apple/Desktop/Personal_AI_Assistant/Sentinal_Lee/agentEnv/bin/python3</string>
+        <string>/Users/apple/Desktop/Personal_AI_Assistant/Sentinal_Lee/main.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/apple/Desktop/Personal_AI_Assistant/Sentinal_Lee</string>
+
+    <!-- Auto-start when you log in to your Mac -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Auto-restart Lee if it ever crashes -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Log all output to files (view with: tail -f logs/lee.log) -->
+    <key>StandardOutPath</key>
+    <string>/Users/apple/Desktop/Personal_AI_Assistant/Sentinal_Lee/logs/lee.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/apple/Desktop/Personal_AI_Assistant/Sentinal_Lee/logs/lee.error.log</string>
+
+    <!-- Low-priority process — does NOT drain battery or hog CPU -->
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <!-- Throttle restarts: wait 10s before restarting on crash -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>
