@@ -461,8 +461,7 @@ async def get_market_data(symbol: str) -> str:
             
             for d in history_data:
                 d["close"] = round(d["close"] * exchange_rate, 2)
-        
-        return json.dumps({
+        response_data = {
             "status": "success",
             "symbol": lookup_symbol,
             "name": info.get("shortName") or info.get("longName") or symbol,
@@ -476,7 +475,24 @@ async def get_market_data(symbol: str) -> str:
             "52_week_low": round(fifty_two_low, 2) if isinstance(fifty_two_low, (int, float)) else fifty_two_low,
             "market_cap": market_cap,
             "5_day_history": history_data
-        })
+        }
+
+        # Apply Indian Retail Precious Market standards (Import Duty 15% + GST 3% = 1.1845)
+        if currency == "INR" and lookup_symbol in ["GC=F", "SI=F", "PL=F"]:
+            response_data["pricing_unit"] = "1 Troy Ounce"
+            troy_ounce_grams = 31.1034768
+            duty_multiplier = 1.1845
+            
+            per_gram = (current_price / troy_ounce_grams) * duty_multiplier
+            response_data["indian_retail_price_1_gram"] = round(per_gram, 2)
+            
+            if lookup_symbol == "GC=F":
+                response_data["indian_retail_price_10_grams_24k"] = round(per_gram * 10, 2)
+                response_data["indian_retail_price_10_grams_22k"] = round((per_gram * 10) * 0.916, 2)
+            elif lookup_symbol == "SI=F":
+                response_data["indian_retail_price_1_kg"] = round(per_gram * 1000, 2)
+
+        return json.dumps(response_data)
 
     except ImportError:
         return json.dumps({"status": "error", "message": "yfinance library is not installed. Please run 'pip install yfinance'."})
