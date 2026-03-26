@@ -431,20 +431,50 @@ async def get_market_data(symbol: str) -> str:
             })
 
         info = ticker.info
+        currency = info.get("currency", "USD")
+
+        fifty_two_high = info.get("fiftyTwoWeekHigh", "N/A")
+        fifty_two_low = info.get("fiftyTwoWeekLow", "N/A")
+        market_cap = info.get("marketCap", "N/A")
+        day_high = hist["High"].iloc[-1]
+        day_low = hist["Low"].iloc[-1]
+
+        # Automatically convert USD to INR (Indian Rupees) since user wants Indian market focus
+        if currency == "USD":
+            try:
+                # Fetch live USD/INR rate
+                inr_ticker = yf.Ticker("INR=X")
+                inr_hist = inr_ticker.history(period="1d")
+                exchange_rate = inr_hist["Close"].iloc[-1] if not inr_hist.empty else 83.5
+            except Exception:
+                exchange_rate = 83.5  # Fallback exchange rate
+
+            currency = "INR"
+            current_price *= exchange_rate
+            change *= exchange_rate
+            day_high *= exchange_rate
+            day_low *= exchange_rate
+            if isinstance(fifty_two_high, (int, float)):
+                fifty_two_high *= exchange_rate
+            if isinstance(fifty_two_low, (int, float)):
+                fifty_two_low *= exchange_rate
+            
+            for d in history_data:
+                d["close"] = round(d["close"] * exchange_rate, 2)
         
         return json.dumps({
             "status": "success",
             "symbol": lookup_symbol,
             "name": info.get("shortName") or info.get("longName") or symbol,
-            "currency": info.get("currency", "USD"),
+            "currency": currency,
             "current_price": round(current_price, 2),
             "change": round(change, 2),
             "percent_change_today": round(percent_change, 2),
-            "day_high": round(hist["High"].iloc[-1], 2),
-            "day_low": round(hist["Low"].iloc[-1], 2),
-            "52_week_high": info.get("fiftyTwoWeekHigh", "N/A"),
-            "52_week_low": info.get("fiftyTwoWeekLow", "N/A"),
-            "market_cap": info.get("marketCap", "N/A"),
+            "day_high": round(day_high, 2),
+            "day_low": round(day_low, 2),
+            "52_week_high": round(fifty_two_high, 2) if isinstance(fifty_two_high, (int, float)) else fifty_two_high,
+            "52_week_low": round(fifty_two_low, 2) if isinstance(fifty_two_low, (int, float)) else fifty_two_low,
+            "market_cap": market_cap,
             "5_day_history": history_data
         })
 
