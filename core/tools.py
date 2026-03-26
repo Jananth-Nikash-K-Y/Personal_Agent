@@ -486,10 +486,13 @@ async def get_unread_emails(limit: int = 5) -> str:
         return json.dumps({"status": "error", "message": str(e)})
 
 
-async def send_email(to: str, subject: str, body: str) -> str:
-    """Send an email using Gmail."""
+async def send_email(to: str, subject: str, body: str, attachment_path: str = "") -> str:
+    """Send an email using Gmail, with optional file attachment."""
     try:
-        from email.message import EmailMessage
+        import email.mime.multipart
+        import email.mime.text
+        import email.mime.base
+        import email.encoders
 
         service = _get_gmail_service()
 
@@ -497,23 +500,47 @@ async def send_email(to: str, subject: str, body: str) -> str:
         profile = service.users().getProfile(userId="me").execute()
         sender_email = profile.get("emailAddress", "me")
 
-        message = EmailMessage()
-        message.set_content(body)
-        message["To"] = to
-        message["From"] = sender_email
-        message["Subject"] = subject
+        if attachment_path:
+            # Use MIMEMultipart to support attachment
+            path = os.path.expanduser(attachment_path)
+            if not os.path.isfile(path):
+                return json.dumps({"status": "error", "message": f"Attachment file not found: {path}"})
+
+            message = email.mime.multipart.MIMEMultipart()
+            message["To"] = to
+            message["From"] = sender_email
+            message["Subject"] = subject
+            message.attach(email.mime.text.MIMEText(body, "plain"))
+
+            # Attach the file
+            with open(path, "rb") as f:
+                mime_part = email.mime.base.MIMEBase("application", "octet-stream")
+                mime_part.set_payload(f.read())
+            email.encoders.encode_base64(mime_part)
+            filename = os.path.basename(path)
+            mime_part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
+            message.attach(mime_part)
+        else:
+            # Plain text email (no attachment)
+            message = email.mime.text.MIMEText(body, "plain")
+            message["To"] = to
+            message["From"] = sender_email
+            message["Subject"] = subject
 
         encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
         send_message = service.users().messages().send(
             userId="me", body={"raw": encoded_message}
         ).execute()
 
-        return json.dumps({
+        result = {
             "status": "success",
             "message": f"Email successfully sent to {to}",
             "from": sender_email,
             "id": send_message.get("id"),
-        })
+        }
+        if attachment_path:
+            result["attachment"] = os.path.basename(os.path.expanduser(attachment_path))
+        return json.dumps(result)
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
 

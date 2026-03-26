@@ -311,7 +311,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "send_email",
-            "description": "Draft and send an email via Gmail. Always confirm with the user before sending, unless explicitly asked to send it automatically.",
+            "description": "Draft and send an email via Gmail. Can optionally attach a local file. Always confirm with the user before sending, unless explicitly asked to send it automatically.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -325,7 +325,11 @@ TOOL_DEFINITIONS = [
                     },
                     "body": {
                         "type": "string",
-                        "description": "Content body of the email (plain text or basic HTML)"
+                        "description": "Content body of the email (plain text)"
+                    },
+                    "attachment_path": {
+                        "type": "string",
+                        "description": "Optional: absolute or relative path to a local file to attach to the email (e.g. '/Users/apple/Desktop/report.pdf')"
                     }
                 },
                 "required": ["to", "subject", "body"]
