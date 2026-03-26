@@ -135,6 +135,43 @@ Sentinal Lee is built on a highly concurrent AI pipeline:
 - **SQLite FTS5**: Super-fast full-text search powers the conversation history.
 - **Nvidia NIM API**: Currently optimized for `meta/llama-3.3-70b-instruct` to provide top-tier logic via standard OpenAI-compatible endpoints with excellent tool-calling support.
 
+### System Flow
+```mermaid
+graph TD
+    %% Styling
+    classDef user fill:#2CA5E0,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef userD fill:#5865F2,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef agent fill:#10a37f,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef memory fill:#f59e0b,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef tools fill:#ef4444,stroke:#fff,stroke-width:2px,color:#fff;
+
+    %% Nodes
+    U1((📱 Telegram)):::user
+    U2((👾 Discord)):::userD
+    
+    A[🧠 Sentinal Lee Core\n(Nvidia NIM Llama-3.3)]:::agent
+    
+    M[(💾 SQLite Database\nLong-Term Memory)]:::memory
+    
+    T1[💻 Mac System Tools]:::tools
+    T2[✉️ Gmail API]:::tools
+    T3[🌐 Tavily Search]:::tools
+
+    %% Relationships
+    U1 <-->|Async Messaging| A
+    U2 <-->|Async Messaging| A
+    
+    A <-->|Stores & Recalls Facts| M
+    
+    A -->|Decides to use tools| T1
+    A -->|Decides to use tools| T2
+    A -->|Decides to use tools| T3
+    
+    T1 -.->|Returns result| A
+    T2 -.->|Returns result| A
+    T3 -.->|Returns result| A
+```
+
 ---
 
 ## 👨‍💻 Credits
