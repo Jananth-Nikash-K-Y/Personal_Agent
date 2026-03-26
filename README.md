@@ -33,6 +33,7 @@ Sentinal Lee is packed with features designed to make your life easier, all whil
 | ✉️ **Gmail Integration** | Lee can read your unread emails and draft/send replies for you. |
 | 🔍 **Web Search** | Live internet access via Tavily to answer up-to-date questions. |
 | 📸 **Screenshots & Clipboard** | Lee can see your screen or read what you just copied. |
+| 📈 **Indian Market Analysis** | Real-time NSE/BSE stocks, gold/silver prices in ₹, trend analysis and AI-driven suggestions. |
 
 ---
 
@@ -162,6 +163,8 @@ Lee uses advanced "function calling" to operate your computer. If you ask him to
 | `open_url` | Opens links in Safari/Chrome | *"Open YouTube for me"* |
 | `get_unread_emails` | Checks your Gmail inbox | *"Any new emails today?"* |
 | `send_email` | Drafts and sends via Gmail | *"Email John and say I'll be late"* |
+| `get_market_data` | Real-time stock and metal prices | *"What's the gold price today?"* |
+| `get_top_news` | Today's news from the web | *"Give me today's top headlines"* |
 
 ---
 
@@ -215,6 +218,29 @@ graph TD
     T2 -.->|Returns result| A
     T3 -.->|Returns result| A
 ```
+
+---
+
+## 📊 Indian Market Analysis Engine
+
+Sentinal Lee uses a **3-tier hybrid engine** to give you the most accurate Indian market data possible — no subscriptions, no API keys, no hallucinations:
+
+| Tier | Asset Type | Data Source | Why |
+|------|-----------|-------------|-----|
+| **1** | 🥇 Gold, Silver, Platinum | **Tavily Web Search** (live scrape from Goodreturns/BusinessToday) | Gets actual Indian retail price per gram including import duty + GST |
+| **2** | 📈 NSE/BSE Stocks | **Indian Stock Market API** (free REST, no key needed) | Official real-time NSE data without Yahoo Finance's delays |
+| **3** | 🌐 Global Stocks / Crypto | **yfinance** + live USD→INR conversion | Fallback for any ticker not in the Indian API |
+
+### What You Can Ask Lee
+```
+"What's the current price of gold per gram in India?"
+"How is Reliance Industries performing today?"
+"Give me the NIFTY 50 trends for this week."
+"Suggest good mid-cap Indian stocks to invest in right now."
+"Is now a good time to buy HDFC Bank shares?"
+```
+
+> **Note**: For stock suggestions and future predictions, Lee uses web search on Moneycontrol/Economic Times to give you *analyst-backed* recommendations — not hallucinations.
 
 ---
 

@@ -385,119 +385,163 @@ async def get_top_news(category: str = "general", country: str = "India") -> str
 
 
 
-async def get_market_data(symbol: str) -> str:
-    """Get real-time market data for stocks or metals using yfinance."""
+PRECIOUS_METALS = {"gold", "silver", "platinum", "palladium"}
+METAL_QUERIES = {
+    "gold":     "gold price today per gram India 24k 22k site:goodreturns.in OR site:businesstoday.in",
+    "silver":   "silver price today per gram India site:goodreturns.in OR site:businesstoday.in",
+    "platinum": "platinum price today per gram India site:goodreturns.in OR site:businesstoday.in",
+    "palladium":"palladium price today per gram India",
+}
+INDIA_STOCK_API = "https://indian-stock-market-api.onrender.com"
+
+
+async def _get_usd_inr() -> float:
+    """Fetch live USD/INR exchange rate using yfinance."""
     try:
         import yfinance as yf
+        t = yf.Ticker("USDINR=X")
+        h = t.history(period="1d")
+        return float(h["Close"].iloc[-1]) if not h.empty else 85.0
+    except Exception:
+        return 85.0
 
-        # Map common metal/commodity names to Yahoo Finance futures tickers
-        common_metals = {
-            "gold": "GC=F",
-            "silver": "SI=F",
-            "platinum": "PL=F",
-            "copper": "HG=F",
-            "palladium": "PA=F",
-            "crude oil": "CL=F",
-            "brent oil": "BZ=F",
-            "natural gas": "NG=F",
-        }
 
-        # Normalize the symbol
-        lookup_symbol = symbol.lower().strip()
-        if lookup_symbol in common_metals:
-            lookup_symbol = common_metals[lookup_symbol]
-        else:
-            lookup_symbol = symbol.upper()
+async def get_market_data(symbol: str) -> str:
+    """
+    Hybrid market data engine:
+    - Precious metals (gold/silver/platinum) → Tavily real-time web search (Indian retail ₹/gram)
+    - Indian stocks (NSE/BSE)               → Indian Stock Market API (no API key, real-time)
+    - Global stocks / commodities           → yfinance with live USD→INR conversion
+    """
+    sym_lower = symbol.lower().strip()
 
-        ticker = yf.Ticker(lookup_symbol)
-        
-        # Get historical data for the last 5 days
+    # ── 1. PRECIOUS METALS — Use Tavily for Indian retail price ──────────────
+    if sym_lower in PRECIOUS_METALS:
+        query = METAL_QUERIES.get(sym_lower, f"{sym_lower} price today per gram India")
+        try:
+            from tavily import TavilyClient
+            tc = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
+            result = tc.search(query=query, search_depth="advanced", max_results=3, include_answer=True)
+            answer = result.get("answer", "")
+            sources = [r.get("url", "") for r in result.get("results", [])]
+            if answer:
+                return json.dumps({
+                    "status": "success",
+                    "asset": sym_lower,
+                    "pricing_region": "India (retail, inclusive of all taxes & duties)",
+                    "data": answer,
+                    "sources": sources,
+                    "note": "Prices sourced live from Indian market reports. All values are in ₹ (INR)."
+                })
+        except Exception as e:
+            return json.dumps({"status": "error", "message": f"Metal price lookup failed: {str(e)}"})
+
+    # ── 2. INDIAN STOCKS — Use Indian Stock Market REST API ──────────────────
+    # Autodect .NS / .BO suffix — if symbol ends with it, it's an Indian stock
+    is_indian = sym_lower.endswith(".ns") or sym_lower.endswith(".bo") or (
+        not "." in sym_lower and len(sym_lower) <= 15
+    )
+    if is_indian:
+        # Use the clean ticker without suffix for the Indian API
+        clean = symbol.upper().replace(".NS", "").replace(".BO", "").strip()
+        try:
+            result = subprocess.run(
+                ["curl", "-s", "--max-time", "8",
+                 f"{INDIA_STOCK_API}/stock?name={clean}&series=EQ"],
+                capture_output=True, text=True, timeout=10
+            )
+            data = json.loads(result.stdout) if result.stdout else {}
+            if data and "error" not in str(data).lower():
+                price_info = data if not isinstance(data, list) else data[0]
+                return json.dumps({
+                    "status": "success",
+                    "exchange": "NSE India",
+                    "symbol": clean,
+                    "currency": "INR",
+                    "last_price": price_info.get("lastPrice") or price_info.get("last"),
+                    "change": price_info.get("change"),
+                    "percent_change": price_info.get("pChange"),
+                    "day_high": price_info.get("dayHigh") or price_info.get("high"),
+                    "day_low": price_info.get("dayLow") or price_info.get("low"),
+                    "52_week_high": price_info.get("yearHigh"),
+                    "52_week_low": price_info.get("yearLow"),
+                    "volume": price_info.get("totalTradedVolume") or price_info.get("volume"),
+                    "market_cap": price_info.get("totalBuyQuantity"),
+                    "data_source": "NSE India (live, real-time)"
+                })
+        except Exception:
+            pass  # Fall through to yfinance
+
+        # Fallback: try yfinance with .NS suffix for Indian stocks
+        try:
+            import yfinance as yf
+            yfSym = clean + ".NS"
+            ticker = yf.Ticker(yfSym)
+            hist = ticker.history(period="5d")
+            if not hist.empty:
+                info = ticker.info
+                cp = float(hist["Close"].iloc[-1])
+                pc = float(hist["Close"].iloc[-2]) if len(hist) > 1 else cp
+                return json.dumps({
+                    "status": "success",
+                    "exchange": "NSE India (via Yahoo Finance)",
+                    "symbol": yfSym,
+                    "currency": "INR",
+                    "current_price": round(cp, 2),
+                    "change": round(cp - pc, 2),
+                    "percent_change_today": round(((cp - pc) / pc) * 100, 2) if pc else 0,
+                    "day_high": round(float(hist["High"].iloc[-1]), 2),
+                    "day_low": round(float(hist["Low"].iloc[-1]), 2),
+                    "52_week_high": info.get("fiftyTwoWeekHigh", "N/A"),
+                    "52_week_low": info.get("fiftyTwoWeekLow", "N/A"),
+                    "5_day_history": [
+                        {"date": d.strftime("%Y-%m-%d"), "close": round(float(r["Close"]), 2)}
+                        for d, r in hist.iterrows()
+                    ]
+                })
+        except Exception as e:
+            return json.dumps({"status": "error", "message": f"Could not retrieve data for {symbol}: {str(e)}"})
+
+    # ── 3. GLOBAL STOCKS / COMMODITIES — yfinance + USD→INR conversion ───────
+    try:
+        import yfinance as yf
+        ticker = yf.Ticker(symbol.upper())
         hist = ticker.history(period="5d")
         if hist.empty:
-            return json.dumps({"status": "error", "message": f"No data found for symbol: {symbol} (looked up as {lookup_symbol})"})
-
-        current_price = hist["Close"].iloc[-1]
-        previous_close = hist["Close"].iloc[-2] if len(hist) > 1 else current_price
-        change = current_price - previous_close
-        percent_change = (change / previous_close) * 100 if previous_close else 0
-
-        # Build a 5-day history array
-        history_data = []
-        for date, row in hist.iterrows():
-            history_data.append({
-                "date": date.strftime("%Y-%m-%d"),
-                "close": round(row["Close"], 2),
-                "volume": int(row["Volume"]) if "Volume" in row else 0
-            })
+            return json.dumps({"status": "error", "message": f"No data found for: {symbol}"})
 
         info = ticker.info
         currency = info.get("currency", "USD")
+        cp = float(hist["Close"].iloc[-1])
+        pc = float(hist["Close"].iloc[-2]) if len(hist) > 1 else cp
+        day_high = float(hist["High"].iloc[-1])
+        day_low = float(hist["Low"].iloc[-1])
 
-        fifty_two_high = info.get("fiftyTwoWeekHigh", "N/A")
-        fifty_two_low = info.get("fiftyTwoWeekLow", "N/A")
-        market_cap = info.get("marketCap", "N/A")
-        day_high = hist["High"].iloc[-1]
-        day_low = hist["Low"].iloc[-1]
-
-        # Automatically convert USD to INR (Indian Rupees) since user wants Indian market focus
         if currency == "USD":
-            try:
-                # Fetch live USD/INR rate
-                inr_ticker = yf.Ticker("INR=X")
-                inr_hist = inr_ticker.history(period="1d")
-                exchange_rate = inr_hist["Close"].iloc[-1] if not inr_hist.empty else 83.5
-            except Exception:
-                exchange_rate = 83.5  # Fallback exchange rate
+            fx = await _get_usd_inr()
+            currency = "INR (converted from USD)"
+            cp *= fx; pc *= fx; day_high *= fx; day_low *= fx
 
-            currency = "INR"
-            current_price *= exchange_rate
-            change *= exchange_rate
-            day_high *= exchange_rate
-            day_low *= exchange_rate
-            if isinstance(fifty_two_high, (int, float)):
-                fifty_two_high *= exchange_rate
-            if isinstance(fifty_two_low, (int, float)):
-                fifty_two_low *= exchange_rate
-            
-            for d in history_data:
-                d["close"] = round(d["close"] * exchange_rate, 2)
-        response_data = {
+        return json.dumps({
             "status": "success",
-            "symbol": lookup_symbol,
+            "symbol": symbol.upper(),
             "name": info.get("shortName") or info.get("longName") or symbol,
             "currency": currency,
-            "current_price": round(current_price, 2),
-            "change": round(change, 2),
-            "percent_change_today": round(percent_change, 2),
+            "current_price": round(cp, 2),
+            "change": round(cp - pc, 2),
+            "percent_change_today": round(((cp - pc) / pc) * 100, 2) if pc else 0,
             "day_high": round(day_high, 2),
             "day_low": round(day_low, 2),
-            "52_week_high": round(fifty_two_high, 2) if isinstance(fifty_two_high, (int, float)) else fifty_two_high,
-            "52_week_low": round(fifty_two_low, 2) if isinstance(fifty_two_low, (int, float)) else fifty_two_low,
-            "market_cap": market_cap,
-            "5_day_history": history_data
-        }
-
-        # Apply Indian Retail Precious Market standards (Import Duty 15% + GST 3% = 1.1845)
-        if currency == "INR" and lookup_symbol in ["GC=F", "SI=F", "PL=F"]:
-            response_data["pricing_unit"] = "1 Troy Ounce"
-            troy_ounce_grams = 31.1034768
-            duty_multiplier = 1.1845
-            
-            per_gram = (current_price / troy_ounce_grams) * duty_multiplier
-            response_data["indian_retail_price_1_gram"] = round(per_gram, 2)
-            
-            if lookup_symbol == "GC=F":
-                response_data["indian_retail_price_10_grams_24k"] = round(per_gram * 10, 2)
-                response_data["indian_retail_price_10_grams_22k"] = round((per_gram * 10) * 0.916, 2)
-            elif lookup_symbol == "SI=F":
-                response_data["indian_retail_price_1_kg"] = round(per_gram * 1000, 2)
-
-        return json.dumps(response_data)
-
-    except ImportError:
-        return json.dumps({"status": "error", "message": "yfinance library is not installed. Please run 'pip install yfinance'."})
+            "52_week_high": info.get("fiftyTwoWeekHigh", "N/A"),
+            "52_week_low": info.get("fiftyTwoWeekLow", "N/A"),
+            "5_day_history": [
+                {"date": d.strftime("%Y-%m-%d"), "close": round(float(r["Close"]), 2)}
+                for d, r in hist.iterrows()
+            ],
+            "data_source": "Yahoo Finance (global)"
+        })
     except Exception as e:
-        return json.dumps({"status": "error", "message": f"Error fetching data for {symbol}: {str(e)}"})
+        return json.dumps({"status": "error", "message": f"Error fetching {symbol}: {str(e)}"})
 
 
 async def get_weather(location: str) -> str:
