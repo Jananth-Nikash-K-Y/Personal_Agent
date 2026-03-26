@@ -13,6 +13,8 @@ import pyperclip
 import mss
 import base64
 
+from config import INDIAN_API_KEY  # Import the new key from config
+
 logger = logging.getLogger(__name__)
 
 
@@ -412,6 +414,8 @@ async def get_market_data(symbol: str) -> str:
     - Precious metals (gold/silver/platinum) → Tavily real-time web search (Indian retail ₹/gram)
     - Indian stocks (NSE/BSE)               → Indian Stock Market API (no API key, real-time)
     - Global stocks / commodities           → yfinance with live USD→INR conversion
+    
+    *Note*: For deep analysis (analyst views, metrics), use `get_indian_analysis` instead.
     """
     sym_lower = symbol.lower().strip()
 
@@ -542,6 +546,54 @@ async def get_market_data(symbol: str) -> str:
         })
     except Exception as e:
         return json.dumps({"status": "error", "message": f"Error fetching {symbol}: {str(e)}"})
+
+
+async def get_indian_analysis(symbol: str) -> str:
+    """
+    Get deep financial analysis for Indian stocks using IndianAPI.in.
+    Returns analyst views, metrics, and shareholding patterns if available.
+    """
+    if not INDIAN_API_KEY:
+        return json.dumps({
+            "status": "error", 
+            "message": "IndianAPI.in key is missing. Please add INDIAN_API_KEY to your .env file to unlock deep analysis."
+        })
+
+    clean = symbol.upper().replace(".NS", "").replace(".BO", "").strip()
+    base_url = "https://indianapi.in"
+    
+    # We'll try to get both Price/Metrics and Analyst views
+    # IndianAPI.in often has specific endpoints. We'll use the 'Stock Data' endpoint.
+    try:
+        # Analyst Views & Suggestions
+        result_analyst = subprocess.run(
+            ["curl", "-s", "-H", f"x-api-key: {INDIAN_API_KEY}", 
+             f"{base_url}/stock-analyst-views?name={clean}"],
+            capture_output=True, text=True, timeout=10
+        )
+        analyst_data = json.loads(result_analyst.stdout) if result_analyst.stdout else {}
+
+        # Key Metrics & Financials
+        result_metrics = subprocess.run(
+            ["curl", "-s", "-H", f"x-api-key: {INDIAN_API_KEY}", 
+             f"{base_url}/stock-financials?name={clean}"],
+            capture_output=True, text=True, timeout=10
+        )
+        metrics_data = json.loads(result_metrics.stdout) if result_metrics.stdout else {}
+
+        if not analyst_data and not metrics_data:
+             return json.dumps({"status": "error", "message": f"No analysis found for {clean} on IndianAPI.in"})
+
+        return json.dumps({
+            "status": "success",
+            "symbol": clean,
+            "analyst_views": analyst_data,
+            "financial_metrics": metrics_data,
+            "note": "Analysis provided by IndianAPI.in (official broker insights)."
+        })
+
+    except Exception as e:
+        return json.dumps({"status": "error", "message": f"Deep analysis failed: {str(e)}"})
 
 
 async def get_weather(location: str) -> str:
@@ -811,4 +863,5 @@ TOOL_FUNCTIONS = {
     "send_email": send_email,
     "set_reminder": set_reminder,
     "share_file_to_chat": share_file_to_chat,
+    "get_indian_analysis": get_indian_analysis,
 }
