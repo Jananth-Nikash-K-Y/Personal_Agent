@@ -350,7 +350,11 @@ async def get_top_news(category: str = "general", country: str = "India") -> str
     from datetime import datetime, timezone
 
     today = datetime.now(tz=timezone.utc).strftime("%B %d, %Y")
+    
+    # Refine query to filter out common Indian SEO spam (School Assembly news) for business/general
     query = f"top {category} news today {today} {country}"
+    if category.lower() in ["business", "general"]:
+        query += " -school -assembly -" + '"' + "Class 10" + '"' + " -board"
 
     if TAVILY_API_KEY:
         try:
