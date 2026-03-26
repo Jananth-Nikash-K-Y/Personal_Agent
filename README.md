@@ -65,6 +65,7 @@ NVIDIA_API_KEY=your_nvidia_api_key
 DISCORD_TOKEN=your_discord_bot_token
 TELEGRAM_TOKEN=your_telegram_bot_token
 TAVILY_API_KEY=your_tavily_key
+INDIAN_API_KEY=your_indianapi_key
 
 # 2. Your Identity
 AGENT_USER_NAME=YourName
