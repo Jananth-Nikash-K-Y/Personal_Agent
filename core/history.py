@@ -76,6 +76,78 @@ class ChatHistory:
                     fact TEXT UNIQUE NOT NULL,
                     created_at TEXT NOT NULL
                 );
+
+                -- PHASE 5: Tasks
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    description TEXT,
+                    priority TEXT DEFAULT 'Medium',
+                    status TEXT DEFAULT 'Pending',
+                    due_date TEXT,
+                    project TEXT,
+                    created_at TEXT NOT NULL,
+                    completed_at TEXT
+                );
+
+                -- PHASE 4: Expense Tracker
+                CREATE TABLE IF NOT EXISTS expenses (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    amount REAL NOT NULL,
+                    currency TEXT DEFAULT 'INR',
+                    category TEXT,
+                    description TEXT,
+                    merchant TEXT,
+                    date TEXT NOT NULL,
+                    source TEXT DEFAULT 'Manual'
+                );
+
+                -- PHASE 6: Contact Intelligence
+                CREATE TABLE IF NOT EXISTS contacts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    email TEXT,
+                    phone TEXT,
+                    whatsapp TEXT,
+                    relationship TEXT,
+                    last_contacted TEXT,
+                    notes TEXT,
+                    tags TEXT
+                );
+
+                -- PHASE 7: Proactive Email Follow-Up
+                CREATE TABLE IF NOT EXISTS email_threads (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    thread_id TEXT UNIQUE NOT NULL,
+                    subject TEXT,
+                    contact_email TEXT,
+                    last_sent_by_me INTEGER DEFAULT 1,
+                    days_since_reply INTEGER DEFAULT 0,
+                    status TEXT DEFAULT 'Pending'
+                );
+
+                -- PHASE 11: Web Scrubbing & Monitoring
+                CREATE TABLE IF NOT EXISTS web_monitors (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    url TEXT NOT NULL,
+                    selector TEXT,
+                    last_value TEXT,
+                    threshold TEXT,
+                    alert_condition TEXT,
+                    label TEXT,
+                    last_checked TEXT
+                );
+
+                -- PHASE 12: Self-Improvement Loop
+                CREATE TABLE IF NOT EXISTS reflections (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    period_start TEXT,
+                    period_end TEXT,
+                    summary TEXT,
+                    key_topics TEXT,
+                    suggestions TEXT,
+                    created_at TEXT NOT NULL
+                );
             """)
 
     def add_memory(self, fact: str) -> bool:
@@ -252,6 +324,120 @@ class ChatHistory:
                 (f"%{query}%", limit)
             ).fetchall()
             return [dict(r) for r in rows]
+
+    # --- PHASE 5: Tasks ---
+    def add_task(self, title: str, description: str = None, priority: str = "Medium", 
+                 due_date: str = None, project: str = None) -> int:
+        now = datetime.now().isoformat()
+        with self._db() as conn:
+            cursor = conn.execute(
+                """INSERT INTO tasks (title, description, priority, due_date, project, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (title, description, priority, due_date, project, now)
+            )
+            return cursor.lastrowid
+
+    def get_tasks(self, status: str = None, project: str = None) -> list:
+        query = "SELECT * FROM tasks WHERE 1=1"
+        params = []
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+        if project:
+            query += " AND project = ?"
+            params.append(project)
+        query += " ORDER BY due_date ASC, created_at DESC"
+        with self._db() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [dict(r) for r in rows]
+
+    def update_task(self, task_id: int, **kwargs) -> bool:
+        if not kwargs: return False
+        if "status" in kwargs and kwargs["status"] == "Completed" and "completed_at" not in kwargs:
+            kwargs["completed_at"] = datetime.now().isoformat()
+        
+        fields = ", ".join([f"{k} = ?" for k in kwargs.keys()])
+        params = list(kwargs.values()) + [task_id]
+        with self._db() as conn:
+            cursor = conn.execute(f"UPDATE tasks SET {fields} WHERE id = ?", params)
+            return cursor.rowcount > 0
+
+    # --- PHASE 4: Expenses ---
+    def add_expense(self, amount: float, category: str, description: str, 
+                    merchant: str = None, date: str = None, currency: str = "INR") -> int:
+        if not date: date = datetime.now().strftime("%Y-%m-%d")
+        with self._db() as conn:
+            cursor = conn.execute(
+                """INSERT INTO expenses (amount, currency, category, description, merchant, date)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (amount, currency, category, description, merchant, date)
+            )
+            return cursor.lastrowid
+
+    def get_expenses(self, limit: int = 50) -> list:
+        with self._db() as conn:
+            rows = conn.execute("SELECT * FROM expenses ORDER BY date DESC, id DESC LIMIT ?", (limit,)).fetchall()
+            return [dict(r) for r in rows]
+
+    # --- PHASE 6: Contacts ---
+    def add_contact(self, name: str, **kwargs) -> int:
+        cols = ["name"] + list(kwargs.keys())
+        placeholders = ", ".join(["?"] * len(cols))
+        vals = [name] + list(kwargs.values())
+        with self._db() as conn:
+            cursor = conn.execute(f"INSERT INTO contacts ({', '.join(cols)}) VALUES ({placeholders})", vals)
+            return cursor.lastrowid
+
+    def search_contacts(self, query: str) -> list:
+        with self._db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM contacts WHERE name LIKE ? OR tags LIKE ? OR notes LIKE ?", 
+                (f"%{query}%", f"%{query}%", f"%{query}%")
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # --- PHASE 7: Email Threads ---
+    def add_email_thread(self, thread_id: str, subject: str, contact_email: str):
+        with self._db() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO email_threads (thread_id, subject, contact_email) VALUES (?, ?, ?)",
+                (thread_id, subject, contact_email)
+            )
+
+    def get_pending_email_threads(self) -> list:
+        with self._db() as conn:
+            rows = conn.execute("SELECT * FROM email_threads WHERE status = 'Pending'").fetchall()
+            return [dict(r) for r in rows]
+
+    # --- PHASE 11: Web Monitors ---
+    def add_web_monitor(self, url: str, label: str, selector: str = None, threshold: str = None):
+        with self._db() as conn:
+            conn.execute(
+                "INSERT INTO web_monitors (url, label, selector, threshold) VALUES (?, ?, ?, ?)",
+                (url, label, selector, threshold)
+            )
+
+    def get_web_monitors(self) -> list:
+        with self._db() as conn:
+            rows = conn.execute("SELECT * FROM web_monitors").fetchall()
+            return [dict(r) for r in rows]
+    
+    def update_web_monitor(self, monitor_id: int, last_value: str):
+        now = datetime.now().isoformat()
+        with self._db() as conn:
+            conn.execute(
+                "UPDATE web_monitors SET last_value = ?, last_checked = ? WHERE id = ?",
+                (last_value, now, monitor_id)
+            )
+
+    # --- PHASE 12: Reflections ---
+    def add_reflection(self, summary: str, topics: str, suggestions: str):
+        now = datetime.now().isoformat()
+        with self._db() as conn:
+            conn.execute(
+                "INSERT INTO reflections (summary, key_topics, suggestions, created_at) VALUES (?, ?, ?, ?)",
+                (summary, topics, suggestions, now)
+            )
 
 
 # Singleton instance

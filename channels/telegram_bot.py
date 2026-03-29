@@ -5,6 +5,10 @@ import asyncio
 import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import base64
+import io
+import pdfplumber
+
 from core.engine import chat
 from config import TELEGRAM_TOKEN, TELEGRAM_OWNER_ID, AGENT_NAME
 
@@ -88,9 +92,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
-    user_message = update.message.text
+    
+    # Text or Caption
+    user_message = update.message.text or update.message.caption or ""
+    
+    image_base64 = None
+    extracted_text = None
+    
+    # Handle Photo
+    if update.message.photo:
+        photo_file = await update.message.photo[-1].get_file()
+        photo_bytes = await photo_file.download_as_bytearray()
+        image_base64 = base64.b64encode(photo_bytes).decode('utf-8')
+        if not user_message: user_message = "Analyze this image."
 
-    if not user_message:
+    # Handle Document
+    if update.message.document:
+        doc = update.message.document
+        if doc.mime_type == "application/pdf":
+            pdf_file = await doc.get_file()
+            pdf_bytes = await pdf_file.download_as_bytearray()
+            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                extracted_text = "\n".join([page.extract_text() or "" for page in pdf.pages])
+            if not user_message: user_message = "Summarize this PDF."
+        elif doc.mime_type.startswith("text/"):
+            text_file = await doc.get_file()
+            text_bytes = await text_file.download_as_bytearray()
+            extracted_text = text_bytes.decode('utf-8', errors='ignore')
+            if not user_message: user_message = "Read this file."
+
+    if not user_message and not image_base64 and not extracted_text:
         return
 
     conv_id = _user_conversations.get(user_id)
@@ -112,6 +143,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             user_message=user_message,
             conversation_id=conv_id,
             channel="telegram",
+            image_base64=image_base64,
+            extracted_text=extracted_text
         ):
             if event["type"] == "conversation_id":
                 new_conv_id = event["content"]
@@ -228,7 +261,12 @@ async def start_telegram_bot():
         _application.add_handler(CommandHandler("start", cmd_start))
         _application.add_handler(CommandHandler("new", cmd_new))
         _application.add_handler(CommandHandler("memory", cmd_memory))
-        _application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        
+        # Combined handler for Text, Photo, and Documents
+        _application.add_handler(MessageHandler(
+            (filters.TEXT | filters.PHOTO | filters.Document.ALL) & ~filters.COMMAND, 
+            handle_message
+        ))
 
         await _application.initialize()
         await _application.start()

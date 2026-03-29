@@ -30,6 +30,14 @@ INDIAN_API_KEY = os.getenv("INDIAN_API_KEY", "")
 # ── MCP Server API Keys ────────────────────────────────────────────────────────
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")              # GitHub MCP
 
+
+# ── Ollama Fallback Settings ───────────────────────────────────────────────────
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+
+# ── Sync & Productivity ───────────────────────────────────────────────────────
+OBSIDIAN_VAULT_PATH = os.getenv("OBSIDIAN_VAULT_PATH", "~/Documents/ObsidianVault")
+
 # ── Security — Owner-only access ──────────────────────────────────────────────
 # Get your Telegram user ID from @userinfobot in Telegram
 # Get your Discord user ID: Developer Mode → right-click yourself → Copy ID
@@ -65,7 +73,7 @@ User preferences:
 
 Lee's Persona & Style Guidelines:
 - **STRICT: NEVER greet the user in every message.** You are in a continuous, rapid-fire chat thread. Only greet if it's the very first message of the day or a new session.
-- **Tone**: Breezy, witty, and highly competent. Text like a close developer colleague on Slack or WhatsApp.
+- **Tone**: Breezy, witty, and highly competent. Text like a close developer colleague on Slack or Telegram.
 - **Short & Snappy**: Use varied sentence lengths. Avoid long paragraphs. 
 - **No Fillers**: Don't say "Here is the info," "I've updated the file," or "As an AI assistant...". Just provide the answer or do the task.
 - **Human Reactions**: Use natural fillers like "Ah,", "Got it.", "Whoops, my bad.", "One sec...".
@@ -88,6 +96,13 @@ Capabilities you have:
     - **Sequential Thinking** (`sequentialthinking`): Use this tool when tackling complex problems — debugging, multi-step plans, architecture decisions. Break your thinking into explicit steps.
     - **GitHub** (`search_repositories`, `list_issues`, `create_issue`, `create_pull_request`, etc.): Manage repos, issues, PRs and code search directly.
     - **OpenStreetMap** (`show-map`, `geocode`): Render map views and perform geocoding for addresses or coordinates.
+- **Personal Management Tools**:
+    - **Tasks**: Use `add_task`, `list_tasks`, and `complete_task` to manage your work. If the user doesn't specify a priority, auto-assign one (High/Medium/Low) based on the description.
+    - **Expenses**: Use `log_expense` to track spending. You can also parse receipts from photos. Weekly summaries are available via `get_expense_summary`.
+    - **Contacts**: Use `add_contact` and `search_contacts` to build your local CRM. Save emails, phones, and relationship context here.
+    - **Web Monitoring**: Use `add_web_monitor` to watch URLs for changes (e.g. stock drops, job postings). Lee will alert you when they change.
+- **Vision & Documents**: 
+    - You can "see" images and read PDFs. If the user sends a file, summarize it and ask what they want to do next.
 - **Human-like interaction**: Mention tools naturally (e.g. "Let me check the logs..." instead of "Executing read_file").
 - If a request seems dangerous, warn the user like a friend would ("Whoa, that command looks like a wipe-all... are you sure?").
 - You are a trusted companion and a highly competent developer. Let that personality shine.
@@ -489,6 +504,133 @@ TOOL_DEFINITIONS = [
                     "notes": {"type": "string", "description": "Optional notes/description"}
                 },
                 "required": ["title", "start_time"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_task",
+            "description": "Add a new personal task or Todo item to the local tracker.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Title of the task"},
+                    "description": {"type": "string", "description": "Extended details about the task"},
+                    "priority": {"type": "string", "enum": ["High", "Medium", "Low"], "default": "Medium"},
+                    "due_date": {"type": "string", "description": "Due date e.g. '2024-12-25'"},
+                    "project": {"type": "string", "description": "Category or project name (e.g. 'Work', 'Home', 'SentinalLee')"}
+                },
+                "required": ["title"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_tasks",
+            "description": "List existing tasks, filtered by status or project.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "enum": ["Pending", "Completed"], "default": "Pending"},
+                    "project": {"type": "string", "description": "Filter by project name"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "complete_task",
+            "description": "Mark a task as completed.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "integer", "description": "The ID of the task to complete"}
+                },
+                "required": ["task_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "log_expense",
+            "description": "Record a personal expense (amount, description, category, etc.).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "amount": {"type": "number", "description": "Total spent"},
+                    "description": {"type": "string", "description": "What was the money spent on?"},
+                    "category": {"type": "string", "description": "Category (e.g. 'Food', 'Transport', 'Shopping', 'Bills')"},
+                    "merchant": {"type": "string", "description": "Where was the money spent? (e.g. 'Amazon', 'Starbucks')"},
+                    "currency": {"type": "string", "default": "INR"}
+                },
+                "required": ["amount", "description"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_expense_summary",
+            "description": "Get a list of recent expenses you've logged.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "default": 20}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_contact",
+            "description": "Save a new contact (name, email, phone, etc.) to your local address book.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Full name of the contact"},
+                    "email": {"type": "string"},
+                    "phone": {"type": "string"},
+                    "relationship": {"type": "string", "description": "How do you know them? (e.g. 'Friend', 'Work', 'Family')"},
+                    "notes": {"type": "string"},
+                    "tags": {"type": "string", "description": "Comma-separated tags"}
+                },
+                "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_contacts",
+            "description": "Search your local contacts for a name or details.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Name or keyword to search for"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_web_monitor",
+            "description": "Watch a specific webpage for changes. Alerts you when the content updates.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "URL to watch"},
+                    "label": {"type": "string", "description": "Friendly name for this monitor"},
+                    "selector": {"type": "string", "description": "CSS selector to watch specifically (optional)"},
+                    "threshold": {"type": "string", "description": "Alert condition (optional)"}
+                },
+                "required": ["url", "label"]
             }
         }
     }

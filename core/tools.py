@@ -979,6 +979,103 @@ async def share_file_to_chat(file_path: str) -> str:
         return json.dumps({"status": "error", "message": str(e)})
 
 
+# --- Phase 5: Task Management Tools ---
+async def add_task(title: str, description: str = None, priority: str = "Medium", 
+                   due_date: str = None, project: str = None) -> str:
+    """Add a new task to the local tracker."""
+    from core.history import history
+    try:
+        task_id = history.add_task(title, description, priority, due_date, project)
+        return json.dumps({"status": "success", "message": f"Task added with ID {task_id}: {title}"})
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+async def list_tasks(status: str = "Pending", project: str = None) -> str:
+    """List tasks filtered by status (Pending/Completed) or project."""
+    from core.history import history
+    try:
+        tasks = history.get_tasks(status, project)
+        return json.dumps({"status": "success", "count": len(tasks), "tasks": tasks})
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+async def complete_task(task_id: int) -> str:
+    """Mark a task as completed."""
+    from core.history import history
+    try:
+        success = history.update_task(task_id, status="Completed")
+        if success:
+            return json.dumps({"status": "success", "message": f"Task {task_id} marked as completed."})
+        return json.dumps({"status": "error", "message": f"Task {task_id} not found."})
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+async def update_task(task_id: int, **kwargs) -> str:
+    """Update any attribute of an existing task."""
+    from core.history import history
+    try:
+        success = history.update_task(task_id, **kwargs)
+        if success:
+            return json.dumps({"status": "success", "message": f"Task {task_id} updated."})
+        return json.dumps({"status": "error", "message": f"Task {task_id} not found."})
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
+# --- Phase 4: Expense Tools ---
+async def log_expense(amount: float, description: str, category: str = "General", 
+                      merchant: str = None, date: str = None, currency: str = "INR") -> str:
+    """Log a personal expense."""
+    from core.history import history
+    try:
+        expense_id = history.add_expense(amount, category, description, merchant, date, currency)
+        return json.dumps({"status": "success", "message": f"Expense logged with ID {expense_id}: {amount} {currency} for {description}"})
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+async def get_expense_summary(limit: int = 20) -> str:
+    """Get a list of recent expenses."""
+    from core.history import history
+    try:
+        expenses = history.get_expenses(limit)
+        return json.dumps({"status": "success", "count": len(expenses), "expenses": expenses})
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
+# --- Phase 6: Contact Tools ---
+async def add_contact(name: str, email: str = None, phone: str = None, 
+                      whatsapp: str = None, relationship: str = None, notes: str = None, tags: str = None) -> str:
+    """Add a new contact to the local CRM."""
+    from core.history import history
+    kwargs = {k: v for k, v in locals().items() if k != "name" and v is not None}
+    try:
+        contact_id = history.add_contact(name, **kwargs)
+        return json.dumps({"status": "success", "message": f"Contact added with ID {contact_id}: {name}"})
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+async def search_contacts(query: str) -> str:
+    """Search for a contact locally."""
+    from core.history import history
+    try:
+        contacts = history.search_contacts(query)
+        return json.dumps({"status": "success", "count": len(contacts), "contacts": contacts})
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
+# --- Phase 11: Web Monitor Tools ---
+async def add_web_monitor(url: str, label: str, selector: str = None, threshold: str = None) -> str:
+    """Set up a monitor to watch a webpage for changes."""
+    from core.history import history
+    try:
+        history.add_web_monitor(url, label, selector, threshold)
+        return json.dumps({"status": "success", "message": f"Web monitor added for {label} at {url}"})
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
 # ── Tool Registry ─────────────────────────────────────────────────────────────
 TOOL_FUNCTIONS = {
     "get_system_info": get_system_info,
@@ -1008,4 +1105,15 @@ TOOL_FUNCTIONS = {
     "set_reminder": set_reminder,
     "share_file_to_chat": share_file_to_chat,
     "get_indian_analysis": get_indian_analysis,
+    
+    # New Management Tools
+    "add_task": add_task,
+    "list_tasks": list_tasks,
+    "complete_task": complete_task,
+    "update_task": update_task,
+    "log_expense": log_expense,
+    "get_expense_summary": get_expense_summary,
+    "add_contact": add_contact,
+    "search_contacts": search_contacts,
+    "add_web_monitor": add_web_monitor,
 }

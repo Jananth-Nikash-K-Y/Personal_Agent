@@ -8,16 +8,26 @@ import logging
 from typing import AsyncGenerator
 from openai import OpenAI
 
-from config import GEMINI_API_KEY, MODEL_NAME, MAX_TOKENS, TEMPERATURE, SYSTEM_PROMPT, TOOL_DEFINITIONS, USER_MEMORY_PATH
+from config import (
+    GEMINI_API_KEY, MODEL_NAME, MAX_TOKENS, TEMPERATURE, SYSTEM_PROMPT, 
+    TOOL_DEFINITIONS, USER_MEMORY_PATH, OLLAMA_MODEL, OLLAMA_BASE_URL
+)
 from core.tools import TOOL_FUNCTIONS
 import core.mcp_client as mcp_client
 from core.history import history
 
 logger = logging.getLogger(__name__)
 
+# Gemini Client
 openai_client = OpenAI(
     api_key=GEMINI_API_KEY,
     base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+)
+
+# Phase 9: Ollama Fallback Client
+ollama_client = OpenAI(
+    api_key="ollama", # placeholder
+    base_url=OLLAMA_BASE_URL
 )
 
 
@@ -98,17 +108,11 @@ async def chat(
     user_message: str,
     conversation_id: str = None,
     channel: str = "web",
-    callback=None,
+    image_base64: str = None,
+    extracted_text: str = None,
 ) -> AsyncGenerator[dict, None]:
     """
-    Process a user message and yield response events.
-
-    Events:
-    - {"type": "conversation_id", "content": "..."}
-    - {"type": "tool_call", "tool_name": "...", "tool_args": {...}}
-    - {"type": "tool_result", "tool_name": "...", "content": "..."}
-    - {"type": "message", "content": "...", "message_id": "..."}
-    - {"type": "error", "content": "..."}
+    Process a user message and yield response events. Supports Image Vision and Ollama fallback.
     """
     is_new_conversation = not conversation_id
 
@@ -124,21 +128,40 @@ async def chat(
 
     yield {"type": "conversation_id", "content": conversation_id}
 
-    # Save user message
-    user_msg_id = str(uuid.uuid4())
-    history.add_message(conversation_id, user_msg_id, "user", user_message)
-
-    # Build system prompt — always inject user memory so resumed conversations
-    # also have access to the latest known facts about the user
+    # Prepare historical context (excluding the very latest user input)
     memory_snippet = await _load_user_memory()
-    if memory_snippet:
-        effective_system_prompt = SYSTEM_PROMPT + memory_snippet
-    else:
-        effective_system_prompt = SYSTEM_PROMPT
+    effective_system_prompt = SYSTEM_PROMPT + (memory_snippet if memory_snippet else "")
+    context_messages = history.get_recent_messages_for_context(conversation_id)
+    
+    # Construct current user message content (handling Vision/Docs)
+    user_content_blocks = []
+    
+    # Add text (original message + extracted text)
+    full_text = user_message
+    if extracted_text:
+        full_text += f"\n\n--- DOCUMENT CONTENT ---\n{extracted_text}\n--- END DOCUMENT ---"
+    
+    user_content_blocks.append({"type": "text", "text": full_text})
+    
+    # Add image if provided (Phase 3 Vision)
+    if image_base64:
+        user_content_blocks.append({
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:image/jpeg;base64,{image_base64}"
+            }
+        })
+
+    # Save user message to database (store as text)
+    user_msg_id = str(uuid.uuid4())
+    history.add_message(conversation_id, user_msg_id, "user", full_text + (" [Image attached]" if image_base64 else ""))
 
     # Build messages for the LLM
-    context_messages = history.get_recent_messages_for_context(conversation_id)
+    active_tools = mcp_client.get_active_tool_definitions(TOOL_DEFINITIONS)
     messages = [{"role": "system", "content": effective_system_prompt}] + context_messages
+    
+    # Append the CURRENT user input (this turn)
+    messages.append({"role": "user", "content": user_content_blocks})
 
     try:
         max_tool_rounds = 5
@@ -154,20 +177,40 @@ async def chat(
                 break
 
             round_count += 1
-
-            # Build active tool list: builtins (minus MCP-replaced) + MCP tools
-            active_tools = mcp_client.get_active_tool_definitions(TOOL_DEFINITIONS)
-
-            # Call OpenAI with streaming enabled
-            response_stream = openai_client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=messages,
-                tools=active_tools,
-                tool_choice="auto",
-                max_tokens=MAX_TOKENS,
-                temperature=TEMPERATURE,
-                stream=True
-            )
+            
+            # --- PHASE 9: API Call with Fallback ---
+            current_client = openai_client
+            current_model = MODEL_NAME
+            
+            try:
+                # Primary: Try Gemini/Cloud
+                response_stream = current_client.chat.completions.create(
+                    model=current_model,
+                    messages=messages,
+                    tools=active_tools if active_tools else None,
+                    tool_choice="auto" if active_tools else None,
+                    max_tokens=MAX_TOKENS,
+                    temperature=TEMPERATURE,
+                    stream=True
+                )
+            except Exception as e:
+                # If 429 (Rate Limit) or other error, try Ollama fallback
+                if ("429" in str(e) or "quota" in str(e).lower()) and OLLAMA_MODEL:
+                    logger.warning(f"Gemini rate limit hit, falling back to local Ollama ({OLLAMA_MODEL}). Error: {e}")
+                    yield {"type": "content_chunk", "content": "\n\n*(Switching to local LLM fallback due to API rate limits)*\n\n"}
+                    current_client = ollama_client
+                    current_model = OLLAMA_MODEL
+                    
+                    response_stream = current_client.chat.completions.create(
+                        model=current_model,
+                        messages=messages,
+                        tools=active_tools if active_tools else None,
+                        max_tokens=MAX_TOKENS,
+                        temperature=TEMPERATURE,
+                        stream=True
+                    )
+                else:
+                    raise e
 
             full_content = ""
             is_tool_call = False
@@ -235,11 +278,16 @@ async def chat(
             # --- Handle tool calls ---
             tool_calls_data = [current_tool_calls_dict[idx] for idx in sorted(current_tool_calls_dict.keys())]
 
-            # Add assistant's tool-calling message to context
+            # To prevent Gemini API schema crashes with OpenAI compatibility around thought_signatures,
+            # we flatten the current loop's tool_call into narrative text context instead of rigid arrays.
+            tc_str = ", ".join(tc["function"]["name"] for tc in tool_calls_data)
+            action_text = f"[Action taken: Executed tools -> {tc_str}]"
+            flat_content = full_content + f"\n{action_text}" if full_content else action_text
+            
+            # Add assistant's tool-calling message to context (flattened)
             messages.append({
                 "role": "assistant",
-                "content": full_content,
-                "tool_calls": tool_calls_data
+                "content": flat_content
             })
 
             # Save assistant's tool-calling message to history ONCE
@@ -265,6 +313,8 @@ async def chat(
             tasks = [_run_tool_call(tc) for tc in tool_calls_data]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
+            all_tool_results_text = []
+
             for tool_call, result in zip(tool_calls_data, results):
                 if isinstance(result, Exception):
                     tool_name = tool_call["function"]["name"]
@@ -275,18 +325,20 @@ async def chat(
 
                 yield {"type": "tool_result", "tool_name": tool_name, "content": tool_result}
 
-                # Add tool result to context
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call["id"],
-                    "content": tool_result,
-                })
+                all_tool_results_text.append(f"--- Data from {tool_name} ---\n{tool_result}")
 
                 # Save the individual tool result to history
                 history.add_message(
                     conversation_id, str(uuid.uuid4()), "tool",
                     tool_result, tool_call_id=tool_call["id"], tool_name=tool_name
                 )
+                
+            if all_tool_results_text:
+                combined = "\n\n".join(all_tool_results_text)
+                messages.append({
+                    "role": "user",
+                    "content": f"Tool execution returned the following raw data:\n\n{combined}\n\nPlease synthesize this data into a helpful, natural language response. Do NOT output raw JSON logs or tool output blocks."
+                })
 
     except Exception as e:
         logger.error(f"Engine error: {e}", exc_info=True)

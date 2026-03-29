@@ -24,17 +24,15 @@
 
 Sentinal Lee is packed with features designed to make your life easier, all while running securely on your own hardware.
 
-| Feature | Description |
-|---------|-------------|
-| 💬 **Telegram & Discord** | Chat with Lee directly through Telegram or Discord. **Owner-only security** ensures nobody else can use your bot. |
-| 🧠 **Long-Term Memory** | Lee remembers your preferences, projects, and facts forever using a robust SQLite database. |
-| ⚡ **Lightning Fast** | Powered by Gemini and OpenAI-compatible endpoints, Lee responds instantly and runs tools in parallel. |
-| 🔧 **System Control** | Let Lee control your Mac — he can read/write files, open apps, create Reminders, and run shell commands. |
-| 🔌 **MCP Plugin Ecosystem** | Supercharged via the Model Context Protocol (MCP)! Lee dynamically connects to external servers like **GitHub**, **OpenStreetMap**, **Filesystem**, and **Sequential Thinking**. |
-| ✉️ **Gmail Integration** | Lee can read your unread emails and draft/send replies for you. |
-| 🔍 **Web Search** | Live internet access via Tavily to answer up-to-date questions. |
-| 📸 **Screenshots & Clipboard** | Lee can see your screen or read what you just copied. |
-| 📈 **Indian Market Analysis** | Real-time NSE/BSE stocks, gold/silver prices in ₹, trend analysis and AI-driven suggestions. |
+| 💬 **Multi-Channel** | Chat via Telegram, Discord, or **WhatsApp** (owner-only). |
+| 👁️ **Vision & Docs** | Lee can "see" images and read PDFs/text files to summarize them. |
+| 🧠 **Long-Term Memory** | SQLite-backed persistent memory of your facts and preferences. |
+| 💓 **Executive Mode** | Proactive daily briefings (7:30 AM), email tracking, and weekly reflections. |
+| 📊 **Expense Tracking** | Log spending by voice/text; Lee categorizes and summarizes it. |
+| ✅ **Task Management** | Integrated local TODO tracker with priority and project sorting. |
+| 🔌 **MCP Plugin Tech** | Dynamic tools for GitHub, OSM, and Sequential Thinking. |
+| 📈 **Indian Markets** | Real-time NSE/BSE stocks and Gold/Silver analysis in ₹. |
+| 🛡️ **Ollama Fallback** | Automatically switches to local Llama models if API rates are hit. |
 
 ---
 
@@ -78,6 +76,8 @@ AGENT_USER_NAME=YourName
 # 4. Security (CRITICAL)
 # Find your Telegram ID from @userinfobot
 TELEGRAM_OWNER_ID=123456789
+# Your WhatsApp number starting with country code (no +)
+WHATSAPP_OWNER_NUMBER=919876543210
 # Find your Discord ID by right-clicking your name in Developer Mode
 DISCORD_OWNER_ID=987654321
 ```
@@ -171,6 +171,10 @@ Lee uses advanced "function calling" to operate your computer. If you ask him to
 | `send_email` | Drafts and sends via Gmail | *"Email John and say I'll be late"* |
 | `get_market_data` | Real-time stock and metal prices | *"What's the gold price today?"* |
 | `get_top_news` | Today's news from the web | *"Give me today's top headlines"* |
+| `add_task` | Manage your local TODO list | *"Add a task to buy groceries"* |
+| `log_expense` | Track your personal spending | *"I spent 500 on dinner at Starbucks"* |
+| `add_contact` | Local CRM for your contacts | *"Save John's email: john@example.com"* |
+| `add_web_monitor`| Watch URLs for changes | *"Monitor this page for price drops"* |
 
 ---
 
