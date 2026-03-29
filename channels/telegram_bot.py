@@ -5,13 +5,14 @@ import asyncio
 import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from core.engine import chat_simple
+from core.engine import chat
 from config import TELEGRAM_TOKEN, TELEGRAM_OWNER_ID, AGENT_NAME
 
 logger = logging.getLogger(__name__)
 
 # Stores conversation IDs per Telegram USER ID
 _user_conversations: dict[int, str] = {}
+_application: Application = None
 
 
 def _is_owner(update: Update) -> bool:
@@ -99,20 +100,86 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     typing_task = asyncio.create_task(_keep_typing(context, chat_id, stop_typing))
 
     try:
-        reply, new_conv_id, files_to_send = await chat_simple(
+        # Initial message to be edited as we stream
+        sent_msg = await update.message.reply_text("Thinking...")
+        
+        full_reply = ""
+        last_edit_time = 0
+        files_to_send = []
+        new_conv_id = conv_id
+
+        async for event in chat(
             user_message=user_message,
             conversation_id=conv_id,
             channel="telegram",
-        )
+        ):
+            if event["type"] == "conversation_id":
+                new_conv_id = event["content"]
+            
+            elif event["type"] == "content_chunk":
+                full_reply += event["content"]
+                
+                # Update the message every 1.5 seconds to avoid Telegram rate limits
+                import time
+                current_time = time.time()
+                if current_time - last_edit_time > 1.5 and full_reply.strip():
+                    try:
+                        # Append a blinking cursor or indicator if you want
+                        display_content = full_reply + " ▌"
+                        await context.bot.edit_message_text(
+                            chat_id=chat_id,
+                            message_id=sent_msg.message_id,
+                            text=display_content
+                        )
+                        last_edit_time = current_time
+                    except Exception:
+                        pass # Often just "message is not modified"
+
+            elif event["type"] == "tool_call":
+                # Show tool execution status
+                try:
+                    await context.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=sent_msg.message_id,
+                        text=full_reply + f"\n\n🔧 *Executing {event['tool_name']}...*",
+                        parse_mode="Markdown"
+                    )
+                except Exception: pass
+
+            elif event["type"] == "message":
+                # Final message event
+                full_reply = event["content"]
+            
+            elif event["type"] == "tool_result" and event.get("tool_name") == "share_file_to_chat":
+                import json
+                try:
+                    data = json.loads(event["content"])
+                    if data.get("status") == "file_sharing_queued" and "path" in data:
+                        files_to_send.append(data["path"])
+                except Exception: pass
+
         _user_conversations[user_id] = new_conv_id
 
-        # Telegram has a 4096 character limit — split if needed
-        if len(reply) > 4000:
-            chunks = [reply[i:i + 4000] for i in range(0, len(reply), 4000)]
-            for chunk in chunks:
-                await update.message.reply_text(chunk)
-        elif reply:
-            await update.message.reply_text(reply)
+        # Final revision to remove the cursor and handle the full final text
+        try:
+            # Handle Telegram limit (4KB per msg)
+            if len(full_reply) > 4000:
+                # If too long, we might need a whole new message or just truncate
+                final_text = full_reply[:3900] + "\n... (truncated)"
+            else:
+                final_text = full_reply
+
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=sent_msg.message_id,
+                text=final_text
+            )
+        except Exception as e:
+            # If editing failed (e.g. msg too different/old), just send a final reply
+            if not full_reply: 
+                await context.bot.edit_message_text(chat_id=chat_id, message_id=sent_msg.message_id, text="I processed that for you.")
+            else:
+                logger.debug(f"Final edit failed: {e}")
 
         # Send requested files
         for file_path in files_to_send:
@@ -130,6 +197,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         typing_task.cancel()
 
 
+async def notify_owner(message: str):
+    """Send a proactive message to the authorized owner."""
+    if _application and TELEGRAM_OWNER_ID != 0:
+        try:
+            await _application.bot.send_message(chat_id=TELEGRAM_OWNER_ID, text=message)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send Telegram notification: {e}")
+    return False
+
+
 async def start_telegram_bot():
     """Start the Telegram bot as a background task."""
     if not TELEGRAM_TOKEN:
@@ -140,16 +218,17 @@ async def start_telegram_bot():
 
     try:
         print("  💬 Starting Telegram bot...")
-        application = Application.builder().token(TELEGRAM_TOKEN).build()
+        global _application
+        _application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-        application.add_handler(CommandHandler("start", cmd_start))
-        application.add_handler(CommandHandler("new", cmd_new))
-        application.add_handler(CommandHandler("memory", cmd_memory))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        _application.add_handler(CommandHandler("start", cmd_start))
+        _application.add_handler(CommandHandler("new", cmd_new))
+        _application.add_handler(CommandHandler("memory", cmd_memory))
+        _application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-        await application.initialize()
-        await application.start()
-        await application.updater.start_polling()
+        await _application.initialize()
+        await _application.start()
+        await _application.updater.start_polling()
 
         print("  💬 Telegram bot is running.")
 

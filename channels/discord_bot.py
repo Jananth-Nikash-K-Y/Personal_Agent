@@ -3,7 +3,7 @@ Discord bot channel for Lee — owner-only, per-user conversation isolation.
 """
 import logging
 import discord
-from core.engine import chat_simple
+from core.engine import chat
 from config import DISCORD_TOKEN, DISCORD_OWNER_ID, AGENT_NAME
 
 logger = logging.getLogger(__name__)
@@ -84,20 +84,63 @@ async def on_message(message: discord.Message):
 
     async with message.channel.typing():
         try:
-            reply, new_conv_id, files_to_send = await chat_simple(
+            # Initial message to be edited
+            sent_msg = await message.reply("Thinking...")
+            
+            full_reply = ""
+            last_edit_time = 0
+            files_to_send = []
+            new_conv_id = conv_id
+
+            async for event in chat(
                 user_message=user_message,
                 conversation_id=conv_id,
                 channel="discord",
-            )
+            ):
+                if event["type"] == "conversation_id":
+                    new_conv_id = event["content"]
+                
+                elif event["type"] == "content_chunk":
+                    full_reply += event["content"]
+                    
+                    # Update approximately every 1.5 seconds for Discord
+                    import time
+                    current_time = time.time()
+                    if current_time - last_edit_time > 1.5 and full_reply.strip():
+                        try:
+                            # Discord has a 2000 character limit — truncate for streaming
+                            display_text = full_reply[:1900] + " ▌"
+                            await sent_msg.edit(content=display_text)
+                            last_edit_time = current_time
+                        except Exception:
+                            pass
+
+                elif event["type"] == "tool_call":
+                    try:
+                        await sent_msg.edit(content=full_reply[:1900] + f"\n\n🔧 **Executing {event['tool_name']}...**")
+                    except Exception: pass
+
+                elif event["type"] == "message":
+                    full_reply = event["content"]
+
+                elif event["type"] == "tool_result" and event.get("tool_name") == "share_file_to_chat":
+                    import json
+                    try:
+                        data = json.loads(event["content"])
+                        if data.get("status") == "file_sharing_queued" and "path" in data:
+                            files_to_send.append(data["path"])
+                    except Exception: pass
+
             _user_conversations[user_id] = new_conv_id
 
-            # Discord has a 2000 character limit — split if needed
-            if len(reply) > 1900:
-                chunks = [reply[i:i + 1900] for i in range(0, len(reply), 1900)]
+            # Final edit to remove cursor and show full text (split if > 2000)
+            if len(full_reply) > 1900:
+                await sent_msg.edit(content=full_reply[:1900] + "\n... (continued below)")
+                chunks = [full_reply[i:i + 1900] for i in range(1900, len(full_reply), 1900)]
                 for chunk in chunks:
                     await message.channel.send(chunk)
-            elif reply:
-                await message.reply(reply)
+            else:
+                await sent_msg.edit(content=full_reply if full_reply else "I completed that for you.")
 
             # Send requested files
             for file_path in files_to_send:
@@ -109,6 +152,19 @@ async def on_message(message: discord.Message):
         except Exception as e:
             logger.error(f"Discord message handling error: {e}", exc_info=True)
             await message.reply(f"Sorry, I ran into an error: {str(e)}")
+
+
+async def notify_owner(message: str):
+    """Send a proactive message to the authorized owner."""
+    if DISCORD_OWNER_ID != 0:
+        try:
+            owner = await discord_client.fetch_user(DISCORD_OWNER_ID)
+            if owner:
+                await owner.send(message)
+                return True
+        except Exception as e:
+            logger.error(f"Failed to send Discord notification: {e}")
+    return False
 
 
 async def start_discord_bot():

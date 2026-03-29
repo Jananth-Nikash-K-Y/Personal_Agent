@@ -730,12 +730,16 @@ def _get_gmail_service(scopes=None):
     return build("gmail", "v1", credentials=creds)
 
 
-async def get_unread_emails(limit: int = 5) -> str:
+async def get_unread_emails(limit: int = 5, only_important: bool = False) -> str:
     """Fetch unread emails from the Gmail Inbox."""
     try:
         service = _get_gmail_service()
 
-        results = service.users().messages().list(userId="me", q="is:unread in:inbox", maxResults=limit).execute()
+        query = "is:unread in:inbox"
+        if only_important:
+            query += " label:important"
+
+        results = service.users().messages().list(userId="me", q=query, maxResults=limit).execute()
         messages = results.get("messages", [])
 
         emails = []
@@ -821,6 +825,77 @@ async def send_email(to: str, subject: str, body: str, attachment_path: str = ""
         return json.dumps(result)
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
+
+
+
+async def get_calendar_events(days: int = 1) -> str:
+    """Fetch calendar events from Apple Calendar for the next X days."""
+    try:
+        # Use a simpler AppleScript that outputs delimited text
+        script = f'''
+        set days_count to {days}
+        set startDate to (current date)
+        set endDate to startDate + (days_count * 24 * 60 * 60)
+        set output to ""
+        tell application "Calendar"
+            repeat with aCal in calendars
+                set theEvents to (every event of aCal whose start date is greater than or equal to startDate and start date is less than or equal to endDate)
+                repeat with anEvent in theEvents
+                    set output to output & (summary of anEvent) & "|" & (start date of anEvent as string) & "|" & (end date of anEvent as string) & "|" & (location of anEvent) & "\\n"
+                end repeat
+            end repeat
+        end tell
+        return output
+        '''
+        proc = subprocess.run(['osascript', '-e', script], capture_output=True, text=True, timeout=10)
+        if proc.returncode != 0:
+            return json.dumps({"status": "error", "message": proc.stderr.strip()})
+
+        lines = proc.stdout.strip().split('\n')
+        events = []
+        for line in lines:
+            if not line.strip(): continue
+            parts = line.split('|')
+            if len(parts) >= 3:
+                events.append({
+                    "summary": parts[0],
+                    "start": parts[1],
+                    "end": parts[2],
+                    "location": parts[3] if len(parts) > 3 else ""
+                })
+        return json.dumps({"status": "success", "days": days, "events": events})
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
+async def add_calendar_event(title: str, start_time: str, duration_mins: int = 30, location: str = "", notes: str = "") -> str:
+    """
+    Add an event to Apple Calendar.
+    Lee will try to normalize the date format to be AppleScript-friendly.
+    """
+    try:
+        safe_title = _applescript_escape(title)
+        safe_start = _applescript_escape(start_time)
+        safe_loc = _applescript_escape(location)
+        safe_notes = _applescript_escape(notes)
+
+        # AppleScript: Calculate end date manually as some versions struggle with 'duration' property
+        script = f'''
+        tell application "Calendar"
+            set theStartDate to date "{safe_start}"
+            set theEndDate to theStartDate + ({duration_mins} * 60)
+            tell calendar 1
+                make new event with properties {{summary:"{safe_title}", start date:theStartDate, end date:theEndDate, location:"{safe_loc}", description:"{safe_notes}"}}
+            end tell
+        end tell
+        '''
+        subprocess.run(['osascript', '-e', script], check=True, timeout=10)
+        return json.dumps({"status": "success", "message": f"Added event '{title}' at {start_time}"})
+    except Exception as e:
+        return json.dumps({
+            "status": "error", 
+            "message": f"AppleScript Calendar Error: {str(e)}. Tip: Ensure your date format matches your Mac regional settings (e.g. DD/MM/YYYY HH:MM)."
+        })
 
 
 def _applescript_escape(s: str) -> str:
@@ -928,6 +1003,8 @@ TOOL_FUNCTIONS = {
     "get_weather": get_weather,
     "get_unread_emails": get_unread_emails,
     "send_email": send_email,
+    "get_calendar_events": get_calendar_events,
+    "add_calendar_event": add_calendar_event,
     "set_reminder": set_reminder,
     "share_file_to_chat": share_file_to_chat,
     "get_indian_analysis": get_indian_analysis,

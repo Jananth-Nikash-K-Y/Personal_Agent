@@ -28,8 +28,9 @@ Sentinal Lee is packed with features designed to make your life easier, all whil
 |---------|-------------|
 | 💬 **Telegram & Discord** | Chat with Lee directly through Telegram or Discord. **Owner-only security** ensures nobody else can use your bot. |
 | 🧠 **Long-Term Memory** | Lee remembers your preferences, projects, and facts forever using a robust SQLite database. |
-| ⚡ **Lightning Fast** | Powered by Nvidia NIM's Llama models, Lee responds instantly and runs tools in parallel. |
+| ⚡ **Lightning Fast** | Powered by Gemini and OpenAI-compatible endpoints, Lee responds instantly and runs tools in parallel. |
 | 🔧 **System Control** | Let Lee control your Mac — he can read/write files, open apps, create Reminders, and run shell commands. |
+| 🔌 **MCP Plugin Ecosystem** | Supercharged via the Model Context Protocol (MCP)! Lee dynamically connects to external servers like **GitHub**, **OpenStreetMap**, **Filesystem**, and **Sequential Thinking**. |
 | ✉️ **Gmail Integration** | Lee can read your unread emails and draft/send replies for you. |
 | 🔍 **Web Search** | Live internet access via Tavily to answer up-to-date questions. |
 | 📸 **Screenshots & Clipboard** | Lee can see your screen or read what you just copied. |
@@ -61,16 +62,20 @@ Create a file named `.env` in the `Sentinal_Lee` folder and add your specific ke
 
 ```env
 # 1. API Keys
-NVIDIA_API_KEY=your_nvidia_api_key
+GEMINI_API_KEY=your_gemini_key
 DISCORD_TOKEN=your_discord_bot_token
 TELEGRAM_TOKEN=your_telegram_bot_token
 TAVILY_API_KEY=your_tavily_key
 INDIAN_API_KEY=your_indianapi_key
 
-# 2. Your Identity
+# 2. MCP Server Keys (Optional but powerful)
+GITHUB_TOKEN=your_github_personal_access_token
+# (Note: Filesystem, OpenStreetMap, and Sequential Thinking MCP servers run locally free without keys!)
+
+# 3. Your Identity
 AGENT_USER_NAME=YourName
 
-# 3. Security (CRITICAL)
+# 4. Security (CRITICAL)
 # Find your Telegram ID from @userinfobot
 TELEGRAM_OWNER_ID=123456789
 # Find your Discord ID by right-clicking your name in Developer Mode
@@ -169,6 +174,19 @@ Lee uses advanced "function calling" to operate your computer. If you ask him to
 
 ---
 
+## 🔌 The MCP Ecosystem (New!)
+Sentinal Lee now supports the **Model Context Protocol (MCP)**, allowing him to connect securely to standardized external tool servers via standard I/O subprocesses.
+
+Current active MCP integrations:
+- 🗺️ **OpenStreetMap**: Renders map views and performs robust geocoding—completely free, no API keys needed.
+- 🐈‍⬛ **GitHub**: Full repository, issue, and PR management directly from your chat (requires `GITHUB_TOKEN`).
+- 📂 **Enhanced Filesystem**: Advanced computer control (recursive directory trees, surgical file edits, metadata reads) restricted safely to your allowed directories.
+- 🧠 **Sequential Thinking**: A powerful chain-of-thought system that Lee invokes to logically break down and solve complex, multi-step tasks.
+
+*MCP servers are spun up dynamically on boot via `npx`—adding a new massive suite of developer tools seamlessly without cluttering the core Python logic!*
+
+---
+
 ## 🛡️ Privacy & Security First
 Because Lee can run commands on your machine, strict security is built in:
 1. **Owner-Only Bots**: The Discord and Telegram bots will completely ignore everyone except the IDs specified in your `.env` file.
@@ -197,7 +215,7 @@ graph TD
     U1(("📱 Telegram")):::user
     U2(("👾 Discord")):::userD
     
-    A["🧠 Sentinal Lee Core<br>(Nvidia NIM Llama-3.3)"]:::agent
+    A["🧠 Sentinal Lee Core<br>(Gemini / LLM Engine)"]:::agent
     
     M[("💾 SQLite Database<br>Long-Term Memory")]:::memory
     
@@ -214,34 +232,36 @@ graph TD
     A -->|Decides to use tools| T1
     A -->|Decides to use tools| T2
     A -->|Decides to use tools| T3
+    A -->|Dynamically invokes| T4["🔌 MCP Servers<br>(GitHub, OSM, Filesystem)"]:::tools
     
     T1 -.->|Returns result| A
     T2 -.->|Returns result| A
     T3 -.->|Returns result| A
+    T4 -.->|Returns result| A
 ```
 
 ---
 
 ## 📊 Indian Market Analysis Engine
 
-Sentinal Lee uses a **3-tier hybrid engine** to give you the most accurate Indian market data possible — no subscriptions, no API keys, no hallucinations:
+Sentinal Lee uses a **Pro-grade hybrid engine** to give you the most accurate Indian market data possible. With your **IndianAPI.in** key, Lee now has institutional-level access:
 
 | Tier | Asset Type | Data Source | Why |
 |------|-----------|-------------|-----|
-| **1** | 🥇 Gold, Silver, Platinum | **Tavily Web Search** (live scrape from Goodreturns/BusinessToday) | Gets actual Indian retail price per gram including import duty + GST |
-| **2** | 📈 NSE/BSE Stocks | **Indian Stock Market API** (free REST, no key needed) | Official real-time NSE data without Yahoo Finance's delays |
-| **3** | 🌐 Global Stocks / Crypto | **yfinance** + live USD→INR conversion | Fallback for any ticker not in the Indian API |
+| **1** | 🥈 **Pro Market Data** | **IndianAPI.in** (Official) | Gets official exchange prices for **both Stocks and Commodities** (Gold/Silver) |
+| **2** | 📈 **Basic Stocks** | **NSE/BSE API** (No-Key) | Free real-time fallback for Indian stock prices |
+| **3** | 🥇 **Retail Metals** | **Tavily Web Search** | Scrapes live "Jeweler's Board" prices from Indian news for retail accuracy |
+| **4** | 🔍 **Deep Analysis** | **Analyst Views Endpoint** | Fetches official broker reports and targets for stock suggestions |
 
 ### What You Can Ask Lee
 ```
-"What's the current price of gold per gram in India?"
-"How is Reliance Industries performing today?"
+"What is the silver price trend this week?"
+"Analyze HDFC Bank and give me the broker targets."
+"What's the current price of 24k gold per gram in India?"
 "Give me the NIFTY 50 trends for this week."
-"Suggest good mid-cap Indian stocks to invest in right now."
-"Is now a good time to buy HDFC Bank shares?"
 ```
 
-> **Note**: For stock suggestions and future predictions, Lee uses web search on Moneycontrol/Economic Times to give you *analyst-backed* recommendations — not hallucinations.
+> **Note**: For stock suggestions, Lee uses the `get_indian_analysis` tool (powered by IndianAPI.in) to give you *professional-grade* recommendations — no hallucinations.
 
 ---
 

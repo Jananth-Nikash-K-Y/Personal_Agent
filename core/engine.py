@@ -8,15 +8,16 @@ import logging
 from typing import AsyncGenerator
 from openai import OpenAI
 
-from config import NVIDIA_API_KEY, MODEL_NAME, MAX_TOKENS, TEMPERATURE, SYSTEM_PROMPT, TOOL_DEFINITIONS, USER_MEMORY_PATH
+from config import GEMINI_API_KEY, MODEL_NAME, MAX_TOKENS, TEMPERATURE, SYSTEM_PROMPT, TOOL_DEFINITIONS, USER_MEMORY_PATH
 from core.tools import TOOL_FUNCTIONS
+import core.mcp_client as mcp_client
 from core.history import history
 
 logger = logging.getLogger(__name__)
 
 openai_client = OpenAI(
-    api_key=NVIDIA_API_KEY,
-    base_url="https://integrate.api.nvidia.com/v1"
+    api_key=GEMINI_API_KEY,
+    base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
 )
 
 
@@ -53,7 +54,16 @@ async def _load_user_memory() -> str:
 
 
 async def execute_tool(tool_name: str, arguments: dict) -> str:
-    """Execute a tool function and return its result."""
+    """Execute a tool function — checks MCP registry first, then built-ins."""
+    # 1. Try MCP tools first (they override builtins with same/aliased names)
+    mcp_func = mcp_client.MCP_TOOL_FUNCTIONS.get(tool_name)
+    if mcp_func:
+        try:
+            return await mcp_func(**arguments)
+        except Exception as e:
+            return json.dumps({"status": "error", "message": f"MCP tool error: {str(e)}"})
+
+    # 2. Fall back to built-in tools
     func = TOOL_FUNCTIONS.get(tool_name)
     if not func:
         return json.dumps({"status": "error", "message": f"Unknown tool: {tool_name}"})
@@ -145,72 +155,74 @@ async def chat(
 
             round_count += 1
 
-            # Call OpenAI without streaming for reliable tool parsing on 3rd-party endpoints
-            response = openai_client.chat.completions.create(
+            # Build active tool list: builtins (minus MCP-replaced) + MCP tools
+            active_tools = mcp_client.get_active_tool_definitions(TOOL_DEFINITIONS)
+
+            # Call OpenAI with streaming enabled
+            response_stream = openai_client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=messages,
-                tools=TOOL_DEFINITIONS,
+                tools=active_tools,
                 tool_choice="auto",
                 max_tokens=MAX_TOKENS,
                 temperature=TEMPERATURE,
-                stream=False
+                stream=True
             )
 
-            message = response.choices[0].message
-            full_content = message.content or ""
-            is_tool_call = bool(message.tool_calls)
+            full_content = ""
+            is_tool_call = False
+            temp_tool_calls_raw = {}  # index -> {id, name, arguments}
+
+            for chunk in response_stream:
+                if not chunk.choices:
+                    continue
+                
+                delta = chunk.choices[0].delta
+                
+                # Handle text content
+                if delta.content:
+                    content_chunk = delta.content
+                    full_content += content_chunk
+                    yield {"type": "content_chunk", "content": content_chunk}
+                
+                # Handle tool calls in stream
+                if delta.tool_calls:
+                    is_tool_call = True
+                    for tc_delta in delta.tool_calls:
+                        idx = tc_delta.index
+                        if idx not in temp_tool_calls_raw:
+                            temp_tool_calls_raw[idx] = {"id": "", "name": "", "arguments": ""}
+                        
+                        if tc_delta.id:
+                            temp_tool_calls_raw[idx]["id"] = tc_delta.id
+                        if tc_delta.function.name:
+                            temp_tool_calls_raw[idx]["name"] += tc_delta.function.name
+                        if tc_delta.function.arguments:
+                            temp_tool_calls_raw[idx]["arguments"] += tc_delta.function.arguments
+
+            # Create a message-like object for compatibility with the rest of the existing logic
+            class FakeMessage:
+                def __init__(self, content, tool_calls):
+                    self.content = content
+                    self.tool_calls = tool_calls
+            
+            tool_calls_final = []
+            for idx in sorted(temp_tool_calls_raw.keys()):
+                raw = temp_tool_calls_raw[idx]
+                class FakeFunction:
+                    def __init__(self, name, args):
+                        self.name = name
+                        self.arguments = args
+                class FakeToolCall:
+                    def __init__(self, id, func):
+                        self.id = id
+                        self.function = func
+                tool_calls_final.append(FakeToolCall(raw["id"], FakeFunction(raw["name"], raw["arguments"])))
+            
+            message = FakeMessage(full_content, tool_calls_final)
 
             current_tool_calls_dict = {}
 
-            # Fallback for Nvidia NIM leaking tool calls into text
-            if not is_tool_call and full_content:
-                import re
-                
-                # Check for {"name": "tool_name", "parameters": {...}} leak
-                json_match = re.search(r'\{\s*"name"\s*:\s*".+?",\s*"parameters"\s*:\s*\{.*?\}\s*\}', full_content, re.DOTALL)
-                if json_match:
-                    try:
-                        parsed = json.loads(json_match.group(0))
-                        class DummyFunction:
-                            def __init__(self, name, args):
-                                self.name = name
-                                self.arguments = args
-                        class DummyCall:
-                            def __init__(self, func):
-                                self.id = "call_" + str(uuid.uuid4())[:10]
-                                self.function = func
-                                self.type = "function"
-                        
-                        message.tool_calls = [DummyCall(DummyFunction(parsed["name"], json.dumps(parsed.get("parameters", {}))))]
-                        is_tool_call = True
-                        full_content = full_content.replace(json_match.group(0), "").strip()
-                    except Exception:
-                        logger.debug("Fallback JSON tool-call parse failed, skipping.", exc_info=True)
-                
-                # Check for pseudo-code Python format: web_search.query("abc") or web_search("abc")
-                if not is_tool_call:
-                    py_match = re.search(r'([a-zA-Z0-9_]+)(?:\.[a-zA-Z0-9_]+)?\(\s*"([^"]+)"\s*\)', full_content)
-                    if py_match:
-                        tool_name = py_match.group(1)
-                        if tool_name in TOOL_FUNCTIONS:
-                            args_str = "{}"
-                            if tool_name == "web_search": args_str = json.dumps({"query": py_match.group(2)})
-                            elif tool_name == "run_shell_command": args_str = json.dumps({"command": py_match.group(2)})
-                            elif tool_name == "read_file": args_str = json.dumps({"file_path": py_match.group(2)})
-                            
-                            class DummyFunction:
-                                def __init__(self, name, args):
-                                    self.name = name
-                                    self.arguments = args
-                            class DummyCall:
-                                def __init__(self, func):
-                                    self.id = "call_" + str(uuid.uuid4())[:10]
-                                    self.function = func
-                                    self.type = "function"
-                            
-                            message.tool_calls = [DummyCall(DummyFunction(tool_name, args_str))]
-                            is_tool_call = True
-                            full_content = full_content.replace(py_match.group(0), "").strip()
 
             if full_content:
                 yield {"type": "content_chunk", "content": full_content}

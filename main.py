@@ -27,13 +27,24 @@ def print_banner():
 
 async def main():
     print_banner()
-    
+
+    # ── Initialize MCP Servers ────────────────────────────────────────────────
+    from core import mcp_client
+    await mcp_client.initialize()
+
+    from core.heartbeat import start_heartbeat
+
     # Start bot tasks concurrently
     discord_task = asyncio.create_task(start_discord_bot())
     telegram_task = asyncio.create_task(start_telegram_bot())
-    
-    # Wait for tasks to complete
-    await asyncio.gather(discord_task, telegram_task)
+    heartbeat_task = start_heartbeat()
+
+    try:
+        # Wait for tasks to complete
+        await asyncio.gather(discord_task, telegram_task, heartbeat_task)
+    finally:
+        # Clean shutdown — close all MCP server subprocesses
+        await mcp_client.shutdown()
 
 if __name__ == "__main__":
     try:

@@ -21,11 +21,14 @@ AGENT_VERSION = "2.1.0"
 AGENT_USER_NAME = os.getenv("AGENT_USER_NAME", "Boss")
 
 # ── API Keys ──────────────────────────────────────────────────────────────────
-NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 INDIAN_API_KEY = os.getenv("INDIAN_API_KEY", "")
+
+# ── MCP Server API Keys ────────────────────────────────────────────────────────
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")              # GitHub MCP
 
 # ── Security — Owner-only access ──────────────────────────────────────────────
 # Get your Telegram user ID from @userinfobot in Telegram
@@ -34,7 +37,7 @@ TELEGRAM_OWNER_ID = int(os.getenv("TELEGRAM_OWNER_ID", "0"))
 DISCORD_OWNER_ID = int(os.getenv("DISCORD_OWNER_ID", "0"))
 
 # ── Model Settings ────────────────────────────────────────────────────────────
-MODEL_NAME = os.getenv("MODEL_NAME", "meta/llama-3.3-70b-instruct")
+MODEL_NAME = os.getenv("MODEL_NAME", "gemini-1.5-flash")
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "4096"))
 TEMPERATURE = float(os.getenv("TEMPERATURE", "0.7"))
 MAX_HISTORY_MESSAGES = int(os.getenv("MAX_HISTORY_MESSAGES", "20"))
@@ -74,13 +77,17 @@ The facts you remember will be automatically injected into your context at the s
 
 Capabilities you have:
 - Get system information (CPU, RAM, disk, battery), current date/time, and weather.
-- Open applications, execute shell commands, read/write/list files.
+- Open applications, execute shell commands, read/write/list files (including `move_file`, `edit_file`, `directory_tree` and more via Filesystem MCP).
 - Read/set clipboard, take screenshots.
 - **IMPORTANT — News & Elaboration**: 
     - When asked for news, use `get_top_news`. 
     - **STRICT: DO NOT provide the same list of headlines twice.** If the user asks for news again, either find new stories or explain that you've already shared the latest.
     - **ELABORATION**: If the user asks to "elaborate" or "tell me more" about a specific headline, DO NOT just search for more headlines. You MUST use `web_search` on that specific topic or URL to get the actual story content and summarize it.
     - **Source Quality**: For market news, prioritize reputable sources like *Moneycontrol, Economic Times, Livemint, Bloomberg, or Reuters*. Avoid low-quality SEO sites (e.g., "School Assembly News").
+- **MCP-Powered Capabilities** (available if servers are connected):
+    - **Sequential Thinking** (`sequentialthinking`): Use this tool when tackling complex problems — debugging, multi-step plans, architecture decisions. Break your thinking into explicit steps.
+    - **GitHub** (`search_repositories`, `list_issues`, `create_issue`, `create_pull_request`, etc.): Manage repos, issues, PRs and code search directly.
+    - **OpenStreetMap** (`show-map`, `geocode`): Render map views and perform geocoding for addresses or coordinates.
 - **Human-like interaction**: Mention tools naturally (e.g. "Let me check the logs..." instead of "Executing read_file").
 - If a request seems dangerous, warn the user like a friend would ("Whoa, that command looks like a wipe-all... are you sure?").
 - You are a trusted companion and a highly competent developer. Let that personality shine.
@@ -88,7 +95,7 @@ Capabilities you have:
 """
 
 
-# ── Tool Definitions (for Groq function calling) ─────────────────────────────
+# ── Tool Definitions (for Gemini/OpenAI function calling) ─────────────────────────
 TOOL_DEFINITIONS = [
     {
         "type": "function",
@@ -447,6 +454,41 @@ TOOL_DEFINITIONS = [
                     }
                 },
                 "required": ["symbol"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_calendar_events",
+            "description": "Fetch calendar events from Apple Calendar for the next X days.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "days": {
+                        "type": "integer",
+                        "description": "Number of days to look ahead (default is 1)"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_calendar_event",
+            "description": "Add an event to Apple Calendar.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Title of the event"},
+                    "start_time": {"type": "string", "description": "Start time in natural language (e.g., 'Tomorrow at 10am' or 'March 27, 2026 10:00:00 AM')"},
+                    "duration_mins": {"type": "integer", "description": "Duration in minutes (default is 30)"},
+                    "location": {"type": "string", "description": "Optional location"},
+                    "notes": {"type": "string", "description": "Optional notes/description"}
+                },
+                "required": ["title", "start_time"]
             }
         }
     }
