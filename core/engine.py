@@ -191,7 +191,7 @@ async def chat(
                     for tc_delta in delta.tool_calls:
                         idx = tc_delta.index
                         if idx not in temp_tool_calls_raw:
-                            temp_tool_calls_raw[idx] = {"id": "", "name": "", "arguments": ""}
+                            temp_tool_calls_raw[idx] = {"id": "", "name": "", "arguments": "", "extra": {}}
                         
                         if tc_delta.id:
                             temp_tool_calls_raw[idx]["id"] = tc_delta.id
@@ -199,48 +199,34 @@ async def chat(
                             temp_tool_calls_raw[idx]["name"] += tc_delta.function.name
                         if tc_delta.function.arguments:
                             temp_tool_calls_raw[idx]["arguments"] += tc_delta.function.arguments
-
-            # Create a message-like object for compatibility with the rest of the existing logic
-            class FakeMessage:
-                def __init__(self, content, tool_calls):
-                    self.content = content
-                    self.tool_calls = tool_calls
-            
-            tool_calls_final = []
-            for idx in sorted(temp_tool_calls_raw.keys()):
-                raw = temp_tool_calls_raw[idx]
-                class FakeFunction:
-                    def __init__(self, name, args):
-                        self.name = name
-                        self.arguments = args
-                class FakeToolCall:
-                    def __init__(self, id, func):
-                        self.id = id
-                        self.function = func
-                tool_calls_final.append(FakeToolCall(raw["id"], FakeFunction(raw["name"], raw["arguments"])))
-            
-            message = FakeMessage(full_content, tool_calls_final)
+                        
+                        if hasattr(tc_delta, "model_dump"):
+                            dump = tc_delta.model_dump(exclude_unset=True)
+                            for k, v in dump.items():
+                                if k not in ["id", "function", "index", "type"] and v is not None:
+                                    temp_tool_calls_raw[idx]["extra"][k] = v
 
             current_tool_calls_dict = {}
 
+            if is_tool_call:
+                for idx in sorted(temp_tool_calls_raw.keys()):
+                    raw = temp_tool_calls_raw[idx]
+                    tc_dict = {
+                        "id": raw["id"] or "call_" + str(uuid.uuid4())[:10],
+                        "type": "function",
+                        "function": {
+                            "name": raw["name"],
+                            "arguments": raw["arguments"]
+                        }
+                    }
+                    current_tool_calls_dict[idx] = tc_dict
 
             if full_content:
                 yield {"type": "content_chunk", "content": full_content}
 
-            if is_tool_call:
-                for idx, tc in enumerate(message.tool_calls):
-                    current_tool_calls_dict[idx] = {
-                        "id": getattr(tc, "id", "call_" + str(uuid.uuid4())[:10]),
-                        "type": "function",
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments
-                        }
-                    }
-
             if not is_tool_call:
                 # Final text response
-                reply = full_content or "I completed the action."
+                reply = full_content or "All done! Need anything else?"
                 reply_id = str(uuid.uuid4())
                 history.add_message(conversation_id, reply_id, "assistant", reply)
                 yield {"type": "message", "content": reply, "message_id": reply_id, "conversation_id": conversation_id}

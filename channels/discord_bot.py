@@ -123,6 +123,9 @@ async def on_message(message: discord.Message):
                 elif event["type"] == "message":
                     full_reply = event["content"]
 
+                elif event["type"] == "error":
+                    full_reply = event["content"]
+
                 elif event["type"] == "tool_result" and event.get("tool_name") == "share_file_to_chat":
                     import json
                     try:
@@ -140,7 +143,7 @@ async def on_message(message: discord.Message):
                 for chunk in chunks:
                     await message.channel.send(chunk)
             else:
-                await sent_msg.edit(content=full_reply if full_reply else "I completed that for you.")
+                await sent_msg.edit(content=full_reply if full_reply else "All done. Need anything else?")
 
             # Send requested files
             for file_path in files_to_send:

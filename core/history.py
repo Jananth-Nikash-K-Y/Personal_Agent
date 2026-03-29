@@ -191,41 +191,35 @@ class ChatHistory:
             if msg["role"] == "assistant" and msg.get("tool_name") == "multiple_tool_calls":
                 try:
                     data = json.loads(msg["content"])
-                    entry = {
+                    content_str = data.get("content", "") or ""
+                    tc_str = ", ".join(t["function"]["name"] for t in data.get("tool_calls", []))
+                    
+                    # Convert tool_calls array to plain text memory to bypass strict API signature validations
+                    flat_content = content_str
+                    if tc_str:
+                        flat_content += f"\n[Action taken: Executed tools -> {tc_str}]"
+                    
+                    formatted.append({
                         "role": "assistant",
-                        "content": data.get("content", ""),
-                        "tool_calls": data.get("tool_calls", [])
-                    }
-                    formatted.append(entry)
+                        "content": flat_content.strip()
+                    })
                 except json.JSONDecodeError:
                     pass
             elif msg["role"] == "assistant" and msg.get("tool_name"):
                 # Old format helper
                 formatted.append({"role": "assistant", "content": msg["content"]})
             elif msg["role"] == "tool":
-                if formatted and formatted[-1]["role"] == "assistant" and "tool_calls" in formatted[-1]:
-                    formatted.append({
-                        "role": "tool",
-                        "content": msg["content"],
-                        "tool_call_id": msg["tool_call_id"]
-                    })
-                else:
-                    # Convert to system to preserve context without breaking schema
-                    formatted.append({
-                        "role": "system",
-                        "content": f"[Result from past tool {msg.get('tool_name', 'unknown')}]: {msg['content']}"
-                    })
+                # Always convert past tool results to system messages
+                formatted.append({
+                    "role": "system",
+                    "content": f"[Result from past tool {msg.get('tool_name', 'unknown')}]: {msg['content']}"
+                })
             else:
                 formatted.append({"role": msg["role"], "content": msg["content"]})
 
-        while formatted and formatted[0]["role"] == "tool":
-            formatted.pop(0)
-
+        # Because tools are now strictly "system", we don't need to pop standalone tools
         if len(formatted) > limit:
-            slice_idx = len(formatted) - limit
-            while slice_idx > 0 and formatted[slice_idx]["role"] == "tool":
-                slice_idx -= 1
-            formatted = formatted[slice_idx:]
+            formatted = formatted[-limit:]
 
         return formatted
 

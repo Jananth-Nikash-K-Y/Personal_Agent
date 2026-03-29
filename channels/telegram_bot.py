@@ -150,6 +150,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 # Final message event
                 full_reply = event["content"]
             
+            elif event["type"] == "error":
+                # Handle engine crashes gracefully
+                full_reply = event["content"]
+                
             elif event["type"] == "tool_result" and event.get("tool_name") == "share_file_to_chat":
                 import json
                 try:
@@ -177,7 +181,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except Exception as e:
             # If editing failed (e.g. msg too different/old), just send a final reply
             if not full_reply: 
-                await context.bot.edit_message_text(chat_id=chat_id, message_id=sent_msg.message_id, text="I processed that for you.")
+                await context.bot.edit_message_text(chat_id=chat_id, message_id=sent_msg.message_id, text="All done. Need anything else?")
             else:
                 logger.debug(f"Final edit failed: {e}")
 
