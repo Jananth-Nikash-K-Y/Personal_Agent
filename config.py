@@ -59,6 +59,13 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 DB_PATH = os.path.join(DATA_DIR, "Lee.db")
 USER_MEMORY_PATH = os.path.join(DATA_DIR, "user_memory.txt")
 
+# ── Knowledge Base (RAG) — 10-Layer Security Firewall ─────────────────────────
+# Only files in KNOWLEDGE_BASE_DIR are indexed. Local-only embeddings.
+KNOWLEDGE_BASE_DIR = os.getenv("KNOWLEDGE_BASE_DIR", os.path.join(DATA_DIR, "knowledge"))
+VECTOR_DB_PATH = os.path.join(DATA_DIR, "chroma_db")
+EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"  # 100% Private, Local-only on Mac
+os.makedirs(KNOWLEDGE_BASE_DIR, exist_ok=True)
+
 # Ensure data directory exists
 os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -97,7 +104,8 @@ Capabilities you have:
     - **GitHub** (`search_repositories`, `list_issues`, `create_issue`, `create_pull_request`, etc.): Manage repos, issues, PRs and code search directly.
     - **OpenStreetMap** (`show-map`, `geocode`): Render map views and perform geocoding for addresses or coordinates.
 - **Personal Management Tools**:
-    - **Tasks**: Use `add_task`, `list_tasks`, and `complete_task` to manage your work. If the user doesn't specify a priority, auto-assign one (High/Medium/Low) based on the description.
+    - **Tasks**: Use `add_task`, `list_tasks`, and `complete_task` to manage your work.
+    - **Knowledge Search** (`search_knowledge`): Use this tool to search through your local documents (PDFs, Markdown, text). This is your "Semantic Brain." If the user asks about a project or a file you don't immediately see, search the knowledge base.
     - **Expenses**: Use `log_expense` to track spending. You can also parse receipts from photos. Weekly summaries are available via `get_expense_summary`.
     - **Contacts**: Use `add_contact` and `search_contacts` to build your local CRM. Save emails, phones, and relationship context here.
     - **Web Monitoring**: Use `add_web_monitor` to watch URLs for changes (e.g. stock drops, job postings). Lee will alert you when they change.
@@ -631,6 +639,20 @@ TOOL_DEFINITIONS = [
                     "threshold": {"type": "string", "description": "Alert condition (optional)"}
                 },
                 "required": ["url", "label"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_knowledge",
+            "description": "Perform a semantic search across your local documents (PDFs, Markdown, text). Use this to find information in your personal knowledge base or project files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "The natural language question or search terms to look for and retrieve relevant document context."}
+                },
+                "required": ["query"]
             }
         }
     }
