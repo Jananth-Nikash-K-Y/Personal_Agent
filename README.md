@@ -26,7 +26,9 @@ Sentinal Lee is packed with features designed to make your life easier, all whil
 
 | 💬 **Multi-Channel** | Chat via Telegram, Discord, or **WhatsApp** (owner-only). |
 | 👁️ **Vision & Docs** | Lee can "see" images and read PDFs/text files to summarize them. |
-| 🧠 **Long-Term Memory** | SQLite-backed persistent memory of your facts and preferences. |
+| 🧠 **Semantic Brain** | **Local RAG**: Index and search your PDFs/docs semantically via ChromaDB. |
+| 🛡️ **10-Layer Firewall** | RAG is isolated with 10 layers of security; 100% private & air-gapped. |
+| 🧱 **Modular Toolbelt** | Clean, high-performance package-based tool architecture. |
 | 💓 **Executive Mode** | Proactive daily briefings (7:30 AM), email tracking, and weekly reflections. |
 | 📊 **Expense Tracking** | Log spending by voice/text; Lee categorizes and summarizes it. |
 | ✅ **Task Management** | Integrated local TODO tracker with priority and project sorting. |
@@ -93,13 +95,17 @@ If you want Sentinel Lee to be able to read and send emails on your behalf, you 
    ```
 4. Fill in your real Google Cloud OAuth Client ID, Secret, and Tokens inside those new files. **These files are strictly ignored by `.gitignore` to prevent secret leaks, so you will never accidentally commit your real keys to GitHub!**
 
-### 4. Start the Engine!
-You can start Lee simply by running:
-```bash
-python main.py
-```
+### 5. Index Your Knowledge (RAG)
+Lee can learn from your local PDFs and documents. Place your files in `data/knowledge/` and refresh his brain:
 
-He will instantly connect to Telegram and Discord in the background.
+```bash
+# Place your PDFs, Markdown, or TXT files here
+mkdir -p data/knowledge
+cp ~/Documents/Deep_Research.pdf data/knowledge/
+
+# Run the ingestion script (Local-only, no data leaves your Mac)
+python3 scripts/ingest_knowledge.py
+```
 
 ---
 
@@ -175,6 +181,7 @@ Lee uses advanced "function calling" to operate your computer. If you ask him to
 | `log_expense` | Track your personal spending | *"I spent 500 on dinner at Starbucks"* |
 | `add_contact` | Local CRM for your contacts | *"Save John's email: john@example.com"* |
 | `add_web_monitor`| Watch URLs for changes | *"Monitor this page for price drops"* |
+| `search_knowledge`| **Semantic search across local docs** | *"What was the budget in that research PDF?"* |
 
 ---
 
@@ -196,6 +203,7 @@ Because Lee can run commands on your machine, strict security is built in:
 1. **Owner-Only Bots**: The Discord and Telegram bots will completely ignore everyone except the IDs specified in your `.env` file.
 2. **Headless Design**: The bot operates purely via chat APIs, entirely eliminating local web server vulnerabilities.
 3. **Command Blocklist**: Destructive terminal commands (like `rm -rf /` or `shutdown`) are hard-blocked by the core engine.
+4. **10-Layer RAG Firewall**: The semantic search system uses air-gapped local embeddings (Sentence-Transformers), a strict directory jail (`data/knowledge/`), path sanitization, and prompt-injection scrubbing to ensure your personal documents never leak.
 
 ---
 
@@ -233,6 +241,9 @@ graph TD
     
     A <-->|Stores & Recalls Facts| M
     
+    K[("🧠 Local Knowledge Base<br>(ChromaDB / RAG)")]:::memory
+    A <-->|Semantic Search| K
+
     A -->|Decides to use tools| T1
     A -->|Decides to use tools| T2
     A -->|Decides to use tools| T3
