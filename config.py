@@ -565,17 +565,19 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "log_expense",
-            "description": "Record a personal expense (amount, description, category, etc.).",
+            "description": "Draft a personal expense or income log. If the user doesn't provide a category and sub-category, you MUST use 'UNKNOWN' instead of asking them. An interactive menu will be shown so they can just click what category it is.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "amount": {"type": "number", "description": "Total spent"},
-                    "description": {"type": "string", "description": "What was the money spent on?"},
-                    "category": {"type": "string", "description": "Category (e.g. 'Food', 'Transport', 'Shopping', 'Bills')"},
-                    "merchant": {"type": "string", "description": "Where was the money spent? (e.g. 'Amazon', 'Starbucks')"},
+                    "amount": {"type": "number", "description": "Total amount"},
+                    "description": {"type": "string", "description": "What was the money spent on? Or where did the income come from?", "default": "General"},
+                    "category": {"type": "string", "description": "High-level category. If not clearly stated, use 'UNKNOWN'.", "default": "UNKNOWN"},
+                    "sub_category": {"type": "string", "description": "More specific category. If not clearly stated, use 'UNKNOWN'.", "default": "UNKNOWN"},
+                    "expense_type": {"type": "string", "description": "'expense' or 'income'", "enum": ["expense", "income"], "default": "expense"},
+                    "merchant": {"type": "string", "description": "Where was the money spent/received? (e.g. 'Amazon', 'Employer')"},
                     "currency": {"type": "string", "default": "INR"}
                 },
-                "required": ["amount", "description"]
+                "required": ["amount"]
             }
         }
     },
@@ -653,6 +655,20 @@ TOOL_DEFINITIONS = [
                     "query": {"type": "string", "description": "The natural language question or search terms to look for and retrieve relevant document context."}
                 },
                 "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_monthly_finance_report",
+            "description": "Generate an aesthetic 3D PNG pie chart report of the user's local expenses for a given month, and share it over Telegram.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "month_str": {"type": "string", "description": "The month to generate the report for, in YYYY-MM format (e.g. '2026-04')."}
+                },
+                "required": ["month_str"]
             }
         }
     }

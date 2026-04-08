@@ -14,7 +14,8 @@ from .web import (
     web_search, get_top_news, get_weather, add_web_monitor
 )
 from .finance import (
-    get_market_data, get_indian_analysis, log_expense, get_expense_summary
+    get_market_data, get_indian_analysis, log_expense, get_expense_summary, 
+    generate_monthly_finance_report
 )
 from .comms import (
     get_unread_emails, send_email, get_calendar_events, add_calendar_event,
@@ -55,6 +56,7 @@ TOOL_FUNCTIONS = {
     "get_indian_analysis": get_indian_analysis,
     "log_expense": log_expense,
     "get_expense_summary": get_expense_summary,
+    "generate_monthly_finance_report": generate_monthly_finance_report,
     
     # Comms
     "get_unread_emails": get_unread_emails,

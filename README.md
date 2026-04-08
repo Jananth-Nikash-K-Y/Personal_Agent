@@ -162,6 +162,15 @@ Lee is designed to be your constant companion. If you tell him a fact about your
 
 ---
 
+## 📊 Intelligent Expense Tracking
+Sentinal Lee features a highly interactive and aesthetically pleasing personal finance manager natively inside the chat interface.
+
+1. **Interactive Logging**: Tell Lee about an expense (e.g., *"I spent ₹1500 on groceries yesterday"*). He will auto-deduce the correct category and sub-category. Sentinal Lee then drafts the expense and serves an interactive **Telegram Inline Button** (`[✅ Confirm & Save]` / `[❌ Cancel]`) to ensure your ledger is always perfectly accurate.
+2. **Fixed Intelligence**: Through long-term memory, Lee can securely remember your fixed financial schedule (e.g. recurring salaries, EMIs, and monthly subscriptions) so you don't have to log them constantly.
+3. **Aesthetic 3D Visual Reports**: Simply ask for your monthly financial report! Sentinal Lee's custom graph generator builds a sleek, dark-themed faux-3D `.png` pie chart of your expense distribution and natively beams the picture straight to your phone or desktop via the chat, accompanied by AI-driven suggestions on how to cut back on spending based on your pre-set constraints.
+
+---
+
 ## 🛠️ The Toolbelt
 Lee uses advanced "function calling" to operate your computer. If you ask him to do something, he will select the right tool entirely on his own.
 

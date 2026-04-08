@@ -99,12 +99,38 @@ async def get_indian_analysis(symbol: str) -> str:
         return json.dumps({"status": "success", "data": trimmed})
     except Exception as e: return json.dumps({"status": "error", "message": str(e)})
 
-async def log_expense(amount: float, description: str, category: str = "General", merchant: str = None, date: str = None, currency: str = "INR") -> str:
-    """Log a personal expense."""
+async def log_expense(amount: float, description: str = "General", category: str = "UNKNOWN", 
+                      sub_category: str = "UNKNOWN", expense_type: str = "expense",
+                      merchant: str = None, date: str = None, currency: str = "INR") -> str:
+    """Draft a personal expense."""
     from core.history import history
     try:
-        expense_id = history.add_expense(amount, category, description, merchant, date, currency)
-        return json.dumps({"status": "success", "message": f"Expense logged (ID {expense_id}): {amount} {currency} for {description}"})
+        # Save as pending initially
+        expense_id = history.add_expense(
+            amount=amount, 
+            category=category, 
+            sub_category=sub_category,
+            description=description, 
+            merchant=merchant, 
+            date=date, 
+            currency=currency,
+            expense_type=expense_type,
+            status="pending"
+        )
+        
+        if category == "UNKNOWN" or sub_category == "UNKNOWN":
+            return json.dumps({
+                "status": "pending_category", 
+                "expense_id": expense_id,
+                "amount": amount,
+                "message": f"Drafted expense of {amount}. Please trigger the category selection buttons."
+            })
+            
+        return json.dumps({
+            "status": "pending_confirmation", 
+            "expense_id": expense_id,
+            "message": f"Drafted {expense_type} of {amount} {currency} for {description} ({category} -> {sub_category}). Please ask the user to confirm via the Telegram button."
+        })
     except Exception as e: return json.dumps({"status": "error", "message": str(e)})
 
 async def get_expense_summary(limit: int = 20) -> str:
@@ -114,3 +140,83 @@ async def get_expense_summary(limit: int = 20) -> str:
         expenses = history.get_expenses(limit)
         return json.dumps({"status": "success", "count": len(expenses), "expenses": expenses})
     except Exception as e: return json.dumps({"status": "error", "message": str(e)})
+
+async def generate_monthly_finance_report(month_str: str) -> str:
+    """Generate a 3D-like pie chart PNG of expenses for a given month (YYYY-MM)."""
+    import os
+    from core.history import history
+    from datetime import datetime
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import numpy as np
+    except ImportError:
+        return json.dumps({"status": "error", "message": "matplotlib is not installed."})
+
+    try:
+        # Fetch expenses
+        all_transactions = history.get_expenses(limit=1000, month=month_str)
+        expenses = [e for e in all_transactions if e.get("type", "expense") == "expense" and e.get("status") == "confirmed"]
+        
+        if not expenses:
+            return json.dumps({"status": "error", "message": f"No confirmed expenses found for {month_str}."})
+
+        # Aggregate by category
+        category_sums = {}
+        total_expense = 0
+        for e in expenses:
+            cat = e.get("category") or "Uncategorized"
+            amt = float(e["amount"])
+            category_sums[cat] = category_sums.get(cat, 0) + amt
+            total_expense += amt
+
+        labels = list(category_sums.keys())
+        sizes = list(category_sums.values())
+
+        # Generate sleek chart
+        plt.style.use('dark_background')
+        fig, ax = plt.subplots(figsize=(10, 7), subplot_kw=dict(aspect="equal"))
+
+        # Create a faux-3D effect using shadow and explode
+        explode = [0.05] * len(labels)
+        wedges, texts, autotexts = ax.pie(
+            sizes, 
+            explode=explode, 
+            labels=labels, 
+            autopct='%1.1f%%',
+            shadow=True, 
+            startangle=140,
+            colors=plt.cm.viridis(np.linspace(0, 1, len(labels))),
+            textprops=dict(color="w", fontsize=12, weight="bold")
+        )
+
+        ax.set_title(f"Expense Report: {month_str}\nTotal: ₹{total_expense:,.2f}", fontsize=18, weight="bold", color="white")
+        
+        # Add legend
+        ax.legend(wedges, labels,
+                  title="Categories",
+                  loc="center left",
+                  bbox_to_anchor=(1, 0, 0.5, 1))
+
+        plt.setp(autotexts, size=10, weight="bold")
+        plt.tight_layout()
+
+        # Save
+        reports_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "data", "reports")
+        os.makedirs(reports_dir, exist_ok=True)
+        out_path = os.path.join(reports_dir, f"report_{month_str}.png")
+        
+        plt.savefig(out_path, format="png", dpi=300, bbox_inches="tight", facecolor=fig.get_facecolor(), transparent=False)
+        plt.close(fig)
+
+        # Trigger chat sharing
+        return json.dumps({
+            "status": "success", 
+            "status_override": "file_sharing_queued", # Hack to trigger sharing over Telegram
+            "path": out_path,
+            "message": f"Report generated and saved to {out_path}. Total expenses: ₹{total_expense}. You should analyze the data and provide suggestions on where to reduce spending.",
+            "data": category_sums
+        })
+    except Exception as e:
+        return json.dumps({"status": "error", "message": f"Report generation failed: {str(e)}"})

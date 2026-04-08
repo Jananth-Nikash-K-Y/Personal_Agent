@@ -3,8 +3,8 @@ Telegram bot channel for Lee — owner-only, per-user conversation isolation.
 """
 import asyncio
 import logging
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 import base64
 import io
 import pdfplumber
@@ -138,6 +138,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         last_edit_time = 0
         files_to_send = []
         new_conv_id = conv_id
+        pending_expense_id = None
+        pending_expense_amount = None
+        pending_action_type = None
 
         async for event in chat(
             user_message=user_message,
@@ -194,22 +197,59 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     if data.get("status") == "file_sharing_queued" and "path" in data:
                         files_to_send.append(data["path"])
                 except Exception: pass
+            
+            elif event["type"] == "tool_result" and event.get("tool_name") == "log_expense":
+                import json
+                try:
+                    data = json.loads(event["content"])
+                    if data.get("status") == "pending_confirmation":
+                        pending_expense_id = data.get("expense_id")
+                        pending_action_type = "confirm"
+                    elif data.get("status") == "pending_category":
+                        pending_expense_id = data.get("expense_id")
+                        pending_expense_amount = data.get("amount")
+                        pending_action_type = "category"
+                except Exception: pass
 
         _user_conversations[user_id] = new_conv_id
 
-        # Final revision to remove the cursor and handle the full final text
+            # Final revision to remove the cursor and handle the full final text
         try:
             # Handle Telegram limit (4KB per msg)
             if len(full_reply) > 4000:
-                # If too long, we might need a whole new message or just truncate
                 final_text = full_reply[:3900] + "\n... (truncated)"
             else:
                 final_text = full_reply
 
+            # Build reply markup if there's a pending expense
+            reply_markup = None
+            if pending_expense_id:
+                if pending_action_type == "confirm":
+                    keyboard = [
+                        [
+                            InlineKeyboardButton("✅ Confirm & Save", callback_data=f"exp_yes_{pending_expense_id}"),
+                            InlineKeyboardButton("❌ Cancel", callback_data=f"exp_no_{pending_expense_id}")
+                        ]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                elif pending_action_type == "category":
+                    keyboard = [
+                        [InlineKeyboardButton("🍔 Food", callback_data=f"cat_Food_{pending_expense_id}"),
+                         InlineKeyboardButton("⛽ Petrol/Trans", callback_data=f"cat_Transport_{pending_expense_id}")],
+                        [InlineKeyboardButton("🛍️ Shopping", callback_data=f"cat_Shopping_{pending_expense_id}"),
+                         InlineKeyboardButton("🧾 Bills/EMI", callback_data=f"cat_Bills_{pending_expense_id}")],
+                        [InlineKeyboardButton("🏥 Medical", callback_data=f"cat_Medical_{pending_expense_id}"),
+                         InlineKeyboardButton("🛒 Groceries", callback_data=f"cat_Groceries_{pending_expense_id}")],
+                        [InlineKeyboardButton("❌ Cancel", callback_data=f"exp_no_{pending_expense_id}")]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+
             await context.bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=sent_msg.message_id,
-                text=final_text
+                text=final_text,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
             )
         except Exception as e:
             # If editing failed (e.g. msg too different/old), just send a final reply
@@ -233,6 +273,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         stop_typing.set()
         typing_task.cancel()
 
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle inline keyboard callbacks."""
+    if not _is_owner(update):
+        return
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    from core.history import history
+
+    if data.startswith("exp_yes_"):
+        exp_id = int(data.replace("exp_yes_", ""))
+        history.update_expense_status(exp_id, "confirmed")
+        await query.edit_message_text(f"{query.message.text}\n\n✅ *Expense Saved Successfully!*", parse_mode="Markdown")
+    elif data.startswith("exp_no_"):
+        exp_id = int(data.replace("exp_no_", ""))
+        history.update_expense_status(exp_id, "cancelled")
+        await query.edit_message_text(f"{query.message.text}\n\n❌ *Expense Cancelled.*", parse_mode="Markdown")
+    elif data.startswith("cat_"):
+        # Format is cat_CategoryName_expId
+        parts = data.split("_")
+        if len(parts) >= 3:
+            category = parts[1]
+            exp_id = int(parts[2])
+            history.update_expense_category_and_confirm(exp_id, category)
+            # Find the button label that matches, but since it's just category we can just use the name
+            await query.edit_message_text(f"✅ *Expense logged under {category}!*", parse_mode="Markdown")
 
 async def notify_owner(message: str):
     """Send a proactive message to the authorized owner."""
@@ -267,6 +335,7 @@ async def start_telegram_bot():
             (filters.TEXT | filters.PHOTO | filters.Document.ALL) & ~filters.COMMAND, 
             handle_message
         ))
+        _application.add_handler(CallbackQueryHandler(handle_callback))
 
         await _application.initialize()
         await _application.start()

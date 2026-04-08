@@ -96,10 +96,13 @@ class ChatHistory:
                     amount REAL NOT NULL,
                     currency TEXT DEFAULT 'INR',
                     category TEXT,
+                    sub_category TEXT,
                     description TEXT,
                     merchant TEXT,
                     date TEXT NOT NULL,
-                    source TEXT DEFAULT 'Manual'
+                    source TEXT DEFAULT 'Manual',
+                    type TEXT DEFAULT 'expense',
+                    status TEXT DEFAULT 'confirmed'
                 );
 
                 -- PHASE 6: Contact Intelligence
@@ -364,19 +367,38 @@ class ChatHistory:
 
     # --- PHASE 4: Expenses ---
     def add_expense(self, amount: float, category: str, description: str, 
-                    merchant: str = None, date: str = None, currency: str = "INR") -> int:
+                    sub_category: str = None, merchant: str = None, date: str = None, 
+                    currency: str = "INR", expense_type: str = "expense", status: str = "confirmed") -> int:
         if not date: date = datetime.now().strftime("%Y-%m-%d")
         with self._db() as conn:
             cursor = conn.execute(
-                """INSERT INTO expenses (amount, currency, category, description, merchant, date)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (amount, currency, category, description, merchant, date)
+                """INSERT INTO expenses (amount, currency, category, sub_category, description, merchant, date, type, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (amount, currency, category, sub_category, description, merchant, date, expense_type, status)
             )
             return cursor.lastrowid
-
-    def get_expenses(self, limit: int = 50) -> list:
+        
+    def update_expense_status(self, expense_id: int, status: str) -> bool:
         with self._db() as conn:
-            rows = conn.execute("SELECT * FROM expenses ORDER BY date DESC, id DESC LIMIT ?", (limit,)).fetchall()
+            cursor = conn.execute("UPDATE expenses SET status = ? WHERE id = ?", (status, expense_id))
+            return cursor.rowcount > 0
+
+    def update_expense_category_and_confirm(self, expense_id: int, category: str) -> bool:
+        with self._db() as conn:
+            cursor = conn.execute("UPDATE expenses SET category = ?, status = 'confirmed' WHERE id = ?", (category, expense_id))
+            return cursor.rowcount > 0
+
+    def get_expenses(self, limit: int = 50, month: str = None) -> list:
+        query = "SELECT * FROM expenses"
+        params = []
+        if month:
+            query += " WHERE strftime('%Y-%m', date) = ?"
+            params.append(month)
+        query += " ORDER BY date DESC, id DESC LIMIT ?"
+        params.append(limit)
+        
+        with self._db() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
             return [dict(r) for r in rows]
 
     # --- PHASE 6: Contacts ---
